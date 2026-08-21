@@ -38,7 +38,7 @@ export async function listCurrencies(includeInactive = false) {
   if (!includeInactive) query = query.eq("is_active", true);
   const { data, error } = await query;
   if (error) throw error;
-  return data as EnabledCurrency[];
+  return (data ?? []).map(numericCurrency);
 }
 
 export async function listTags() {
@@ -135,10 +135,16 @@ export async function deleteTag(id: string) {
   if (error) throw error;
 }
 
-export async function toggleCurrency(code: string, isActive: boolean) {
-  if (isSqliteDevelopment()) { await devPost({ action: "toggleCurrency", code, isActive }); return; }
+export async function toggleCurrency(code: string, isActive: boolean, defaultExchangeRateToTwd?: number) {
+  if (isSqliteDevelopment()) { await devPost({ action: "toggleCurrency", code, isActive, defaultExchangeRateToTwd }); return; }
   const uid = await userId();
-  const { error } = await createClient().from("enabled_currencies").upsert({ user_id: uid, code, is_active: isActive }, { onConflict: "user_id,code" });
+  const payload = {
+    user_id: uid,
+    code,
+    is_active: code === "TWD" ? true : isActive,
+    ...(defaultExchangeRateToTwd === undefined ? {} : { default_exchange_rate_to_twd: code === "TWD" ? 1 : defaultExchangeRateToTwd }),
+  };
+  const { error } = await createClient().from("enabled_currencies").upsert(payload, { onConflict: "user_id,code" });
   if (error) throw error;
 }
 
@@ -185,4 +191,7 @@ function numericExpense(row: Record<string, unknown>): Expense {
 function numericFavorite(row: Record<string, unknown>): FavoriteTemplate {
   const links = Array.isArray(row.favorite_template_tags) ? row.favorite_template_tags as { tags?: { id: string; name: string } | null }[] : [];
   return { ...row, favorite_template_tags: undefined, tags: links.flatMap((link) => link.tags ? [link.tags] : []), default_amount: Number(row.default_amount), default_exchange_rate_to_twd: Number(row.default_exchange_rate_to_twd) } as unknown as FavoriteTemplate;
+}
+function numericCurrency(row: Record<string, unknown>): EnabledCurrency {
+  return { ...row, default_exchange_rate_to_twd: Number(row.default_exchange_rate_to_twd) } as EnabledCurrency;
 }

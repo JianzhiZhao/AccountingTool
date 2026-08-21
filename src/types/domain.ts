@@ -11,6 +11,7 @@ export type EnabledCurrency = {
   user_id: string;
   code: string;
   is_active: boolean;
+  default_exchange_rate_to_twd: number;
   created_at: string;
   updated_at: string;
 };

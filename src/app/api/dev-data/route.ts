@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { isSqliteDevelopment } from "@/lib/backend";
 import { getSqliteDatabase, LOCAL_USER_ID } from "@/lib/sqlite/database";
-import { normalizeExpenseInput, categoryNameSchema, tagIdsSchema, tagNameSchema } from "@/lib/validation";
+import { normalizeExpenseInput, categoryNameSchema, exchangeRateSchema, tagIdsSchema, tagNameSchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     }
     if (resource === "currencies") {
       const rows = db.prepare(`select * from enabled_currencies ${includeInactive ? "" : "where is_active = 1"} order by code`).all();
-      return NextResponse.json(rows.map((row) => booleanRow(row as Record<string, unknown>)));
+      return NextResponse.json(rows.map((raw) => { const row = booleanRow(raw as Record<string, unknown>); return { ...row, default_exchange_rate_to_twd: Number(row.default_exchange_rate_to_twd) }; }));
     }
     if (resource === "tags") {
       return NextResponse.json(db.prepare("select * from tags order by name collate nocase").all());
@@ -80,7 +80,10 @@ export async function POST(request: NextRequest) {
     if (action === "deleteTag") { db.prepare("delete from tags where id=?").run(String(body.id)); return NextResponse.json({ ok: true }); }
     if (action === "toggleCurrency") {
       const code = String(body.code); const active = code === "TWD" ? true : Boolean(body.isActive);
-      db.prepare("insert into enabled_currencies (user_id,code,is_active,created_at,updated_at) values (?,?,?,?,?) on conflict(code) do update set is_active=excluded.is_active, updated_at=excluded.updated_at").run(LOCAL_USER_ID, code, active ? 1 : 0, now, now);
+      const existing = db.prepare("select default_exchange_rate_to_twd from enabled_currencies where code=?").get(code) as { default_exchange_rate_to_twd?: string } | undefined;
+      const requestedRate = body.defaultExchangeRateToTwd === undefined ? Number(existing?.default_exchange_rate_to_twd ?? 1) : exchangeRateSchema.parse(body.defaultExchangeRateToTwd);
+      const rate = code === "TWD" ? 1 : requestedRate;
+      db.prepare("insert into enabled_currencies (user_id,code,is_active,default_exchange_rate_to_twd,created_at,updated_at) values (?,?,?,?,?,?) on conflict(code) do update set is_active=excluded.is_active, default_exchange_rate_to_twd=excluded.default_exchange_rate_to_twd, updated_at=excluded.updated_at").run(LOCAL_USER_ID, code, active ? 1 : 0, String(rate), now, now);
       return NextResponse.json({ ok: true });
     }
     if (action === "saveFavorite") {

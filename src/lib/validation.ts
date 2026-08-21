@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const tagIdsSchema = z.array(z.string().uuid("Tag 格式不正確")).default([]);
+export const exchangeRateSchema = z.coerce.number().positive("匯率必須大於 0");
 
 export const expenseInputSchema = z.object({
   item_name: z.string().trim().min(1, "請輸入項目名稱").max(100, "項目名稱最多 100 字"),
@@ -9,7 +10,7 @@ export const expenseInputSchema = z.object({
   currency_code: z.string().regex(/^[A-Z]{3}$/, "請選擇有效幣別"),
   category_id: z.string().uuid("請選擇分類"),
   note: z.string().trim().max(500, "備註最多 500 字"),
-  exchange_rate_to_twd: z.coerce.number().positive("匯率必須大於 0"),
+  exchange_rate_to_twd: exchangeRateSchema,
   tag_ids: tagIdsSchema,
 }).superRefine((value, context) => {
   if (value.currency_code === "TWD" && value.exchange_rate_to_twd !== 1) {

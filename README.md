@@ -2,6 +2,8 @@
 
 繁體中文、手機優先的私人雲端記帳網站。支援多幣別與逐筆匯率、完全自訂分類、常用項目、統計圖表，以及版本化 CSV 備份還原。
 
+完整正式環境建置流程請參閱 [Vercel 與 Supabase 部署指南](DEPLOYMENT_GUIDE.md)。
+
 ## 本機啟動（SQLite 開發模式）
 
 1. 安裝 Node.js 22.5 以上版本並執行 `npm install`。
@@ -22,7 +24,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 ## Supabase 正式模式
 
 1. 在 Supabase 建立免費專案。
-2. 於 Supabase SQL Editor 執行 `supabase/migrations/001_initial_schema.sql`。
+2. 於 Supabase SQL Editor 依序執行 `001_initial_schema.sql`、`002_expense_tags.sql`、`003_favorite_template_tags.sql`、`004_currency_default_exchange_rates.sql`。
 3. 依下方步驟建立私人帳號並關閉公開註冊。
 
 正式建置與 Vercel 部署固定使用 Supabase；SQLite API 在非開發環境會直接停用。

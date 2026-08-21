@@ -14,8 +14,8 @@ vi.mock("@/lib/data", () => ({
     { id: categoryId, user_id: "dev-user", name: "交通", is_active: true, created_at: "2026-08-21", updated_at: "2026-08-21" },
   ]),
   listCurrencies: vi.fn().mockResolvedValue([
-    { user_id: "dev-user", code: "JPY", is_active: true, created_at: "2026-08-21", updated_at: "2026-08-21" },
-    { user_id: "dev-user", code: "TWD", is_active: true, created_at: "2026-08-21", updated_at: "2026-08-21" },
+    { user_id: "dev-user", code: "JPY", is_active: true, default_exchange_rate_to_twd: 0.22, created_at: "2026-08-21", updated_at: "2026-08-21" },
+    { user_id: "dev-user", code: "TWD", is_active: true, default_exchange_rate_to_twd: 1, created_at: "2026-08-21", updated_at: "2026-08-21" },
   ]),
   listFavorites: vi.fn().mockResolvedValue([
     {
@@ -40,6 +40,14 @@ vi.mock("@/lib/data", () => ({
 describe("ExpenseForm", () => {
   afterEach(cleanup);
   beforeEach(() => saveExpense.mockClear());
+
+  it("fills the configured default exchange rate when a currency is selected", async () => {
+    render(<ExpenseForm />);
+
+    fireEvent.change(await screen.findByLabelText("幣別 *"), { target: { value: "JPY" } });
+
+    expect((screen.getByLabelText(/1 JPY 可換多少 TWD/) as HTMLInputElement).value).toBe("0.22");
+  });
 
   it("does not submit or clear the favorite item when Enter is pressed in the exchange-rate field", async () => {
     render(<ExpenseForm />);

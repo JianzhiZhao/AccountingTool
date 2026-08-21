@@ -10,7 +10,7 @@ const globalSqlite = globalThis as typeof globalThis & {
 };
 
 export const LOCAL_USER_ID = "local-dev-user";
-const LOCAL_SCHEMA_VERSION = 3;
+const LOCAL_SCHEMA_VERSION = 4;
 
 export function getSqliteDatabase() {
   if (process.env.NODE_ENV !== "development") throw new Error("SQLite 僅能在開發模式使用");
@@ -25,6 +25,7 @@ export function getSqliteDatabase() {
       user_id text not null default '${LOCAL_USER_ID}',
       code text primary key,
       is_active integer not null default 1,
+      default_exchange_rate_to_twd text not null default '1',
       created_at text not null,
       updated_at text not null,
       check (code glob '[A-Z][A-Z][A-Z]'),
@@ -81,6 +82,10 @@ export function getSqliteDatabase() {
       updated_at text not null
     );
   `);
+  const currencyColumns = database.prepare("pragma table_info(enabled_currencies)").all() as { name: string }[];
+  if (!currencyColumns.some((column) => column.name === "default_exchange_rate_to_twd")) {
+    database.exec("alter table enabled_currencies add column default_exchange_rate_to_twd text not null default '1'");
+  }
   const favoriteColumns = database.prepare("pragma table_info(favorite_templates)").all() as { name: string }[];
   if (favoriteColumns.some((column) => column.name === "name")) {
     database.exec(`
@@ -117,7 +122,8 @@ export function getSqliteDatabase() {
     create index if not exists favorite_template_tags_tag_idx on favorite_template_tags(tag_id, favorite_template_id);
   `);
   const now = new Date().toISOString();
-  database.prepare("insert or ignore into enabled_currencies (user_id, code, is_active, created_at, updated_at) values (?, 'TWD', 1, ?, ?)").run(LOCAL_USER_ID, now, now);
+  database.prepare("insert or ignore into enabled_currencies (user_id, code, is_active, default_exchange_rate_to_twd, created_at, updated_at) values (?, 'TWD', 1, '1', ?, ?)").run(LOCAL_USER_ID, now, now);
+  database.prepare("update enabled_currencies set is_active=1, default_exchange_rate_to_twd='1' where code='TWD'").run();
   globalSqlite.accountingSqlite = database;
   globalSqlite.accountingSqliteSchemaVersion = LOCAL_SCHEMA_VERSION;
   return database;
