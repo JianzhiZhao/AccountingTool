@@ -22,7 +22,7 @@ button { -webkit-tap-highlight-color: transparent; }
   .btn-primary { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-moss-700 px-5 py-2.5 font-semibold text-[#08110b] shadow-[0_8px_24px_rgba(72,168,104,.18)] transition hover:bg-moss-600 disabled:cursor-not-allowed disabled:opacity-50; }
   .btn-secondary { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-moss-100 bg-white px-4 py-2.5 font-medium text-moss-700 transition hover:bg-moss-50 disabled:cursor-not-allowed disabled:opacity-50; }
   .btn-danger { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-red-50 px-4 py-2.5 font-medium text-red-700 transition hover:bg-red-100; }
-  .field { @apply min-h-12 w-full rounded-2xl border border-stone-200 bg-[#0d120f] px-4 py-3 text-base text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-moss-500 focus:ring-4 focus:ring-moss-100; }
+  .field { @apply min-h-12 min-w-0 w-full max-w-full rounded-2xl border border-stone-200 bg-[#0d120f] px-4 py-3 text-base text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-moss-500 focus:ring-4 focus:ring-moss-100; }
   .label { @apply mb-1.5 block text-sm font-medium text-stone-700; }
   .page-title { @apply text-2xl font-bold tracking-tight md:text-3xl; }
   .muted { @apply text-sm text-stone-500; }

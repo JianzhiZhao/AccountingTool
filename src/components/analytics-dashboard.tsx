@@ -42,8 +42,8 @@ export function AnalyticsDashboard() {
 
   return <div className="space-y-5">
     <form onSubmit={apply} className="card flex flex-col gap-3 sm:flex-row sm:items-end">
-      <div className="flex-1"><label className="label">開始日期</label><input className="field" type="date" required value={from} onChange={(event) => setFrom(event.target.value)} /></div>
-      <div className="flex-1"><label className="label">結束日期</label><input className="field" type="date" required value={to} onChange={(event) => setTo(event.target.value)} /></div>
+      <div className="min-w-0 flex-1"><label className="label">開始日期</label><input className="field" type="date" required value={from} onChange={(event) => setFrom(event.target.value)} /></div>
+      <div className="min-w-0 flex-1"><label className="label">結束日期</label><input className="field" type="date" required value={to} onChange={(event) => setTo(event.target.value)} /></div>
       <button className="btn-primary"><CalendarRange size={18} />更新統計</button>
     </form>
     <StatusMessage message={error} error />
