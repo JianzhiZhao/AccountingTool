@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { AlertTriangle, Check, FileSpreadsheet, LoaderCircle, X } from "lucide-react";
-import { insertImportedExpense, listCategories, listExpenses, saveCategory, toggleCurrency } from "@/lib/data";
+import { insertImportedExpense, listCategories, listExpenses, listTags, saveCategory, saveTag, toggleCurrency } from "@/lib/data";
 import { expensesToCsv, parseExpenseCsv, type CsvPreview } from "@/lib/csv";
 import { todayInTaipei } from "@/lib/date";
 import type { Expense } from "@/types/domain";
@@ -14,13 +14,15 @@ export function CsvTools({ expenses, onImported, exportButton, importButton }: {
   async function runImport() {
     if (!preview) return; setLoading(true); let success = 0; let failed = 0;
     try {
-      const categories = await listCategories(true); const categoryMap = new Map(categories.map((c) => [c.name.trim().toLocaleLowerCase("zh-TW"), c.id]));
+      const [categories, tags] = await Promise.all([listCategories(true), listTags()]); const categoryMap = new Map(categories.map((c) => [c.name.trim().toLocaleLowerCase("zh-TW"), c.id])); const tagMap = new Map(tags.map((tag) => [tag.name.trim().toLocaleLowerCase("zh-TW"), tag.id]));
       for (const row of preview.valid) {
         try {
           const key = row.category_name.trim().toLocaleLowerCase("zh-TW"); let categoryId = categoryMap.get(key);
           if (!categoryId) { await saveCategory(row.category_name.trim()); const created = (await listCategories(true)).find((category) => category.name.trim().toLocaleLowerCase("zh-TW") === key); if (!created) throw new Error("分類建立失敗"); categoryId = created.id; categoryMap.set(key, created.id); }
+          const tagIds: string[] = [];
+          for (const tagName of row.tag_names) { const tagKey = tagName.toLocaleLowerCase("zh-TW"); let tagId = tagMap.get(tagKey); if (!tagId) { await saveTag(tagName); const created = (await listTags()).find((tag) => tag.name.trim().toLocaleLowerCase("zh-TW") === tagKey); if (!created) throw new Error("Tag 建立失敗"); tagId = created.id; tagMap.set(tagKey, tagId); } tagIds.push(tagId); }
           await toggleCurrency(row.currency_code, true);
-          await insertImportedExpense(row.id, { item_name: row.item_name, expense_date: row.expense_date, amount: row.amount, currency_code: row.currency_code, category_id: categoryId, note: row.note, exchange_rate_to_twd: row.currency_code === "TWD" ? 1 : row.exchange_rate_to_twd }, row.created_at, row.updated_at); success++;
+          await insertImportedExpense(row.id, { item_name: row.item_name, expense_date: row.expense_date, amount: row.amount, currency_code: row.currency_code, category_id: categoryId, note: row.note, exchange_rate_to_twd: row.currency_code === "TWD" ? 1 : row.exchange_rate_to_twd, tag_ids: tagIds }, row.created_at, row.updated_at); success++;
         } catch { failed++; }
       }
       setResult(`匯入完成：成功 ${success} 筆、重複跳過 ${preview.duplicate.length} 筆、格式錯誤 ${preview.errors.length} 筆、寫入失敗 ${failed} 筆。`); setPreview(null); onImported();

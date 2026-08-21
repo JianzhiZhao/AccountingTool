@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ExpenseForm } from "../expense-form";
 
 const { categoryId, saveExpense } = vi.hoisted(() => ({
@@ -32,10 +32,12 @@ vi.mock("@/lib/data", () => ({
       updated_at: "2026-08-21",
     },
   ]),
+  listTags: vi.fn().mockResolvedValue([{ id: "22222222-2222-4222-8222-222222222222", user_id: "dev-user", name: "通勤", created_at: "2026-08-21", updated_at: "2026-08-21" }]),
   saveExpense,
 }));
 
 describe("ExpenseForm", () => {
+  afterEach(cleanup);
   beforeEach(() => saveExpense.mockClear());
 
   it("does not submit or clear the favorite item when Enter is pressed in the exchange-rate field", async () => {
@@ -53,5 +55,14 @@ describe("ExpenseForm", () => {
 
     await waitFor(() => expect((screen.getByLabelText("項目名稱 *") as HTMLInputElement).value).toBe("下班公車費"));
     expect(saveExpense).not.toHaveBeenCalled();
+  });
+
+  it("saves multiple tags only when the optional tag is selected", async () => {
+    render(<ExpenseForm />);
+    fireEvent.click(await screen.findByRole("button", { name: /下班公車費/ }));
+    fireEvent.click(screen.getByRole("button", { name: "#通勤" }));
+    fireEvent.click(screen.getByRole("button", { name: "完成記帳" }));
+
+    await waitFor(() => expect(saveExpense).toHaveBeenCalledWith(expect.objectContaining({ tag_ids: ["22222222-2222-4222-8222-222222222222"] }), undefined));
   });
 });

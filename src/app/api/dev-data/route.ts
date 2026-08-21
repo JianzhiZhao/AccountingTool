@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { isSqliteDevelopment } from "@/lib/backend";
 import { getSqliteDatabase, LOCAL_USER_ID } from "@/lib/sqlite/database";
-import { normalizeExpenseInput, categoryNameSchema } from "@/lib/validation";
+import { normalizeExpenseInput, categoryNameSchema, tagNameSchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +24,9 @@ export async function GET(request: NextRequest) {
       const rows = db.prepare(`select * from enabled_currencies ${includeInactive ? "" : "where is_active = 1"} order by code`).all();
       return NextResponse.json(rows.map((row) => booleanRow(row as Record<string, unknown>)));
     }
+    if (resource === "tags") {
+      return NextResponse.json(db.prepare("select * from tags order by name collate nocase").all());
+    }
     if (resource === "favorites") {
       const rows = db.prepare(`select f.*, c.name as category_name, c.is_active as category_active from favorite_templates f join categories c on c.id = f.category_id order by f.sort_order, f.created_at`).all();
       return NextResponse.json(rows.map((raw) => { const row = raw as Record<string, unknown>; return { ...row, default_amount: Number(row.default_amount), default_exchange_rate_to_twd: Number(row.default_exchange_rate_to_twd), categories: { id: row.category_id, name: row.category_name, is_active: Boolean(row.category_active) }, category_name: undefined, category_active: undefined }; }));
@@ -33,9 +36,11 @@ export async function GET(request: NextRequest) {
       const add = (clause: string, value: string | null) => { if (value) { where.push(clause); values.push(value); } };
       add("e.expense_date >= ?", request.nextUrl.searchParams.get("from")); add("e.expense_date <= ?", request.nextUrl.searchParams.get("to"));
       add("e.category_id = ?", request.nextUrl.searchParams.get("categoryId")); add("e.currency_code = ?", request.nextUrl.searchParams.get("currencyCode"));
+      add("exists (select 1 from expense_tags et where et.expense_id = e.id and et.tag_id = ?)", request.nextUrl.searchParams.get("tagId"));
       const query = request.nextUrl.searchParams.get("query")?.trim(); if (query) { where.push("(e.item_name like ? escape '\\' or e.note like ? escape '\\')"); const safe = `%${query.replace(/[\\%_]/g, "\\$&")}%`; values.push(safe, safe); }
       const rows = db.prepare(`select e.*, c.name as category_name, c.is_active as category_active from expenses e join categories c on c.id = e.category_id ${where.length ? `where ${where.join(" and ")}` : ""} order by e.expense_date desc, e.created_at desc`).all(...values);
-      return NextResponse.json(rows.map((raw) => { const row = raw as Record<string, unknown>; const amount = Number(row.amount); const rate = Number(row.exchange_rate_to_twd); return { ...row, amount, exchange_rate_to_twd: rate, amount_twd: amount * rate, categories: { id: row.category_id, name: row.category_name, is_active: Boolean(row.category_active) }, category_name: undefined, category_active: undefined }; }));
+      const tagQuery = db.prepare("select t.id, t.name from tags t join expense_tags et on et.tag_id=t.id where et.expense_id=? order by t.name collate nocase");
+      return NextResponse.json(rows.map((raw) => { const row = raw as Record<string, unknown>; const amount = Number(row.amount); const rate = Number(row.exchange_rate_to_twd); return { ...row, amount, exchange_rate_to_twd: rate, amount_twd: amount * rate, tags: tagQuery.all(String(row.id)), categories: { id: row.category_id, name: row.category_name, is_active: Boolean(row.category_active) }, category_name: undefined, category_active: undefined }; }));
     }
     return fail("未知的資料類型");
   } catch (error) { return fail(error); }
@@ -47,8 +52,15 @@ export async function POST(request: NextRequest) {
     const db = getSqliteDatabase(); const body = await request.json() as Record<string, unknown>; const action = String(body.action ?? ""); const now = new Date().toISOString();
     if (action === "saveExpense") {
       const input = normalizeExpenseInput(body.input); const id = typeof body.id === "string" ? body.id : randomUUID();
-      if (body.id) db.prepare("update expenses set item_name=?, expense_date=?, amount=?, currency_code=?, category_id=?, note=?, exchange_rate_to_twd=?, updated_at=? where id=?").run(input.item_name, input.expense_date, String(input.amount), input.currency_code, input.category_id, input.note, String(input.exchange_rate_to_twd), now, id);
-      else db.prepare("insert into expenses values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, LOCAL_USER_ID, input.item_name, input.expense_date, String(input.amount), input.currency_code, input.category_id, input.note, String(input.exchange_rate_to_twd), now, now);
+      db.exec("begin");
+      try {
+        if (body.id) db.prepare("update expenses set item_name=?, expense_date=?, amount=?, currency_code=?, category_id=?, note=?, exchange_rate_to_twd=?, updated_at=? where id=?").run(input.item_name, input.expense_date, String(input.amount), input.currency_code, input.category_id, input.note, String(input.exchange_rate_to_twd), now, id);
+        else db.prepare("insert into expenses values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, LOCAL_USER_ID, input.item_name, input.expense_date, String(input.amount), input.currency_code, input.category_id, input.note, String(input.exchange_rate_to_twd), now, now);
+        db.prepare("delete from expense_tags where expense_id=?").run(id);
+        const addTag = db.prepare("insert into expense_tags (expense_id,tag_id,user_id,created_at) values (?,?,?,?)");
+        for (const tagId of input.tag_ids) addTag.run(id, tagId, LOCAL_USER_ID, now);
+        db.exec("commit");
+      } catch (error) { db.exec("rollback"); throw error; }
       return NextResponse.json({ id });
     }
     if (action === "deleteExpense") { db.prepare("delete from expenses where id=?").run(String(body.id)); return NextResponse.json({ ok: true }); }
@@ -59,6 +71,12 @@ export async function POST(request: NextRequest) {
     }
     if (action === "toggleCategory") { db.prepare("update categories set is_active=?, updated_at=? where id=?").run(body.isActive ? 1 : 0, now, String(body.id)); return NextResponse.json({ ok: true }); }
     if (action === "deleteCategory") { db.prepare("delete from categories where id=?").run(String(body.id)); return NextResponse.json({ ok: true }); }
+    if (action === "saveTag") {
+      const name = tagNameSchema.parse(body.name); const id = randomUUID();
+      db.prepare("insert into tags values (?,?,?,?,?)").run(id, LOCAL_USER_ID, name, now, now);
+      return NextResponse.json({ id });
+    }
+    if (action === "deleteTag") { db.prepare("delete from tags where id=?").run(String(body.id)); return NextResponse.json({ ok: true }); }
     if (action === "toggleCurrency") {
       const code = String(body.code); const active = code === "TWD" ? true : Boolean(body.isActive);
       db.prepare("insert into enabled_currencies (user_id,code,is_active,created_at,updated_at) values (?,?,?,?,?) on conflict(code) do update set is_active=excluded.is_active, updated_at=excluded.updated_at").run(LOCAL_USER_ID, code, active ? 1 : 0, now, now);
@@ -75,7 +93,13 @@ export async function POST(request: NextRequest) {
     if (action === "deleteFavorite") { db.prepare("delete from favorite_templates where id=?").run(String(body.id)); return NextResponse.json({ ok: true }); }
     if (action === "insertImportedExpense") {
       const input = normalizeExpenseInput(body.input); const id = String(body.id); const createdAt = String(body.createdAt); const updatedAt = String(body.updatedAt);
-      db.prepare("insert into expenses values (?,?,?,?,?,?,?,?,?,?,?)").run(id, LOCAL_USER_ID, input.item_name, input.expense_date, String(input.amount), input.currency_code, input.category_id, input.note, String(input.exchange_rate_to_twd), createdAt, updatedAt);
+      db.exec("begin");
+      try {
+        db.prepare("insert into expenses values (?,?,?,?,?,?,?,?,?,?,?)").run(id, LOCAL_USER_ID, input.item_name, input.expense_date, String(input.amount), input.currency_code, input.category_id, input.note, String(input.exchange_rate_to_twd), createdAt, updatedAt);
+        const addTag = db.prepare("insert into expense_tags (expense_id,tag_id,user_id,created_at) values (?,?,?,?)");
+        for (const tagId of input.tag_ids) addTag.run(id, tagId, LOCAL_USER_ID, createdAt);
+        db.exec("commit");
+      } catch (error) { db.exec("rollback"); throw error; }
       return NextResponse.json({ id });
     }
     return fail("未知的資料操作");

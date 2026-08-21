@@ -2,32 +2,33 @@
 
 import { useEffect, useState } from "react";
 import { Download, Filter, LoaderCircle, Pencil, Search, Trash2, Upload, X } from "lucide-react";
-import { deleteExpense, listCategories, listCurrencies, listExpenses } from "@/lib/data";
+import { deleteExpense, listCategories, listCurrencies, listExpenses, listTags } from "@/lib/data";
 import { EMPTY_FILTERS } from "@/lib/constants";
 import { formatDateZh } from "@/lib/date";
 import { formatMoney } from "@/lib/analytics";
-import type { Category, EnabledCurrency, Expense, ExpenseFilters } from "@/types/domain";
+import type { Category, EnabledCurrency, Expense, ExpenseFilters, Tag } from "@/types/domain";
 import { ExpenseForm } from "./expense-form";
 import { CsvTools } from "./csv-tools";
 import { StatusMessage } from "./status-message";
 
 export function ExpensesManager() {
   const [filters, setFilters] = useState<ExpenseFilters>({ ...EMPTY_FILTERS }); const [applied, setApplied] = useState<ExpenseFilters>({ ...EMPTY_FILTERS });
-  const [expenses, setExpenses] = useState<Expense[]>([]); const [categories, setCategories] = useState<Category[]>([]); const [currencies, setCurrencies] = useState<EnabledCurrency[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]); const [categories, setCategories] = useState<Category[]>([]); const [currencies, setCurrencies] = useState<EnabledCurrency[]>([]); const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true); const [editing, setEditing] = useState<Expense | null>(null); const [message, setMessage] = useState(""); const [error, setError] = useState("");
-  async function load(next = applied) { setLoading(true); setError(""); try { const [e, c, u] = await Promise.all([listExpenses(next), listCategories(true), listCurrencies(true)]); setExpenses(e); setCategories(c); setCurrencies(u); } catch { setError("無法載入帳目，請稍後再試。" ); } finally { setLoading(false); } }
-  useEffect(() => { Promise.all([listExpenses(applied), listCategories(true), listCurrencies(true)]).then(([e, c, u]) => { setExpenses(e); setCategories(c); setCurrencies(u); }).catch(() => setError("無法載入帳目，請稍後再試。" )).finally(() => setLoading(false)); }, [applied]);
+  async function load(next = applied) { setLoading(true); setError(""); try { const [e, c, u, t] = await Promise.all([listExpenses(next), listCategories(true), listCurrencies(true), listTags()]); setExpenses(e); setCategories(c); setCurrencies(u); setTags(t); } catch { setError("無法載入帳目，請稍後再試。" ); } finally { setLoading(false); } }
+  useEffect(() => { Promise.all([listExpenses(applied), listCategories(true), listCurrencies(true), listTags()]).then(([e, c, u, t]) => { setExpenses(e); setCategories(c); setCurrencies(u); setTags(t); }).catch(() => setError("無法載入帳目，請稍後再試。" )).finally(() => setLoading(false)); }, [applied]);
   async function remove(expense: Expense) { if (!window.confirm(`確定永久刪除「${expense.item_name}」？此動作無法復原。`)) return; try { await deleteExpense(expense.id); setMessage("帳目已永久刪除。" ); await load(); } catch { setError("刪除失敗，請稍後再試。" ); } }
   function apply(event: React.FormEvent) { event.preventDefault(); setLoading(true); setError(""); setApplied({ ...filters }); }
   function clear() { const empty = { ...EMPTY_FILTERS }; setFilters(empty); setLoading(true); setError(""); setApplied(empty); }
   return <div className="space-y-5">
-    <form onSubmit={apply} className="card grid gap-3 md:grid-cols-6">
+    <form onSubmit={apply} className="card grid gap-3 md:grid-cols-7">
       <div className="relative md:col-span-2"><Search className="absolute left-4 top-3.5 text-stone-400" size={19} /><input aria-label="搜尋名稱或備註" className="field pl-11" placeholder="搜尋名稱或備註" value={filters.query} onChange={(e) => setFilters({ ...filters, query: e.target.value })} /></div>
       <input aria-label="開始日期" className="field" type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} />
       <input aria-label="結束日期" className="field" type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} />
       <select aria-label="分類" className="field" value={filters.categoryId} onChange={(e) => setFilters({ ...filters, categoryId: e.target.value })}><option value="">所有分類</option>{categories.map((c) => <option key={c.id} value={c.id}>{c.name}{!c.is_active ? "（停用）" : ""}</option>)}</select>
       <select aria-label="幣別" className="field" value={filters.currencyCode} onChange={(e) => setFilters({ ...filters, currencyCode: e.target.value })}><option value="">所有幣別</option>{currencies.map((c) => <option key={c.code} value={c.code}>{c.code}{!c.is_active ? "（停用）" : ""}</option>)}</select>
-      <div className="flex gap-2 md:col-span-6"><button className="btn-primary" type="submit"><Filter size={17} />套用篩選</button><button className="btn-secondary" type="button" onClick={clear}><X size={17} />清除</button><CsvTools expenses={expenses} onImported={() => load()} exportButton={<><Download size={17} />匯出</>} importButton={<><Upload size={17} />匯入</>} /></div>
+      <select aria-label="Tag" className="field" value={filters.tagId} onChange={(e) => setFilters({ ...filters, tagId: e.target.value })}><option value="">所有 Tag</option>{tags.map((tag) => <option key={tag.id} value={tag.id}>#{tag.name}</option>)}</select>
+      <div className="flex gap-2 md:col-span-7"><button className="btn-primary" type="submit"><Filter size={17} />套用篩選</button><button className="btn-secondary" type="button" onClick={clear}><X size={17} />清除</button><CsvTools expenses={expenses} onImported={() => load()} exportButton={<><Download size={17} />匯出</>} importButton={<><Upload size={17} />匯入</>} /></div>
     </form>
     <StatusMessage message={error || message} error={Boolean(error)} />
     <section className="card overflow-hidden p-0">
@@ -38,6 +39,7 @@ export function ExpensesManager() {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1"><h3 className="truncate font-semibold">{expense.item_name}</h3><span className="rounded-full bg-moss-50 px-2 py-0.5 text-xs text-moss-700">{expense.categories?.name ?? "分類已移除"}</span></div>
             {expense.note && <p className="mt-1 truncate text-sm text-stone-500">{expense.note}</p>}
+            {Boolean(expense.tags?.length) && <div className="mt-1.5 flex flex-wrap gap-1.5">{expense.tags?.map((tag) => <span key={tag.id} className="rounded-full bg-stone-100 px-2 py-0.5 text-[11px] text-stone-500">#{tag.name}</span>)}</div>}
             <p className="mt-1 text-xs text-stone-400"><span>{formatDateZh(expense.expense_date)}</span>{isConverted && <><span> · </span><span>{formatMoney(expense.amount, expense.currency_code)}</span></>}</p>
           </div>
           <div className="shrink-0 text-right">

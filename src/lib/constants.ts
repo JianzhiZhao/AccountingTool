@@ -7,4 +7,4 @@ export const ISO_CURRENCIES = [
 
 export const CURRENCY_NAMES = Object.fromEntries(ISO_CURRENCIES) as Record<string, string>;
 
-export const EMPTY_FILTERS = { query: "", from: "", to: "", categoryId: "", currencyCode: "" };
+export const EMPTY_FILTERS = { query: "", from: "", to: "", categoryId: "", currencyCode: "", tagId: "" };

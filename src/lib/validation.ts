@@ -8,6 +8,7 @@ export const expenseInputSchema = z.object({
   category_id: z.string().uuid("請選擇分類"),
   note: z.string().trim().max(500, "備註最多 500 字"),
   exchange_rate_to_twd: z.coerce.number().positive("匯率必須大於 0"),
+  tag_ids: z.array(z.string().uuid("Tag 格式不正確")).default([]),
 }).superRefine((value, context) => {
   if (value.currency_code === "TWD" && value.exchange_rate_to_twd !== 1) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["exchange_rate_to_twd"], message: "TWD 匯率固定為 1" });
@@ -20,6 +21,7 @@ function isRealDate(value: string) {
 }
 
 export const categoryNameSchema = z.string().trim().min(1, "請輸入分類名稱").max(40, "分類名稱最多 40 字");
+export const tagNameSchema = z.string().trim().min(1, "請輸入 Tag 名稱").max(30, "Tag 名稱最多 30 字");
 
 export function normalizeExpenseInput(input: unknown) {
   const parsed = expenseInputSchema.parse(input);

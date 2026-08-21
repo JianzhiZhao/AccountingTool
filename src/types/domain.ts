@@ -15,6 +15,14 @@ export type EnabledCurrency = {
   updated_at: string;
 };
 
+export type Tag = {
+  id: string;
+  user_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Expense = {
   id: string;
   user_id: string;
@@ -29,6 +37,7 @@ export type Expense = {
   created_at: string;
   updated_at: string;
   categories?: Pick<Category, "id" | "name" | "is_active"> | null;
+  tags?: Pick<Tag, "id" | "name">[];
 };
 
 export type FavoriteTemplate = {
@@ -62,6 +71,7 @@ export type ExpenseInput = {
   category_id: string;
   note: string;
   exchange_rate_to_twd: number;
+  tag_ids: string[];
 };
 
 export type ExpenseFilters = {
@@ -70,4 +80,5 @@ export type ExpenseFilters = {
   to: string;
   categoryId: string;
   currencyCode: string;
+  tagId: string;
 };

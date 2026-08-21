@@ -4,17 +4,21 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-const globalSqlite = globalThis as typeof globalThis & { accountingSqlite?: DatabaseSync };
+const globalSqlite = globalThis as typeof globalThis & {
+  accountingSqlite?: DatabaseSync;
+  accountingSqliteSchemaVersion?: number;
+};
 
 export const LOCAL_USER_ID = "local-dev-user";
+const LOCAL_SCHEMA_VERSION = 2;
 
 export function getSqliteDatabase() {
   if (process.env.NODE_ENV !== "development") throw new Error("SQLite 僅能在開發模式使用");
-  if (globalSqlite.accountingSqlite) return globalSqlite.accountingSqlite;
+  if (globalSqlite.accountingSqlite && globalSqlite.accountingSqliteSchemaVersion === LOCAL_SCHEMA_VERSION) return globalSqlite.accountingSqlite;
 
   const dataDirectory = path.join(process.cwd(), ".data");
   mkdirSync(dataDirectory, { recursive: true });
-  const database = new DatabaseSync(path.join(dataDirectory, "accounting.db"));
+  const database = globalSqlite.accountingSqlite ?? new DatabaseSync(path.join(dataDirectory, "accounting.db"));
   database.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;");
   database.exec(`
     create table if not exists enabled_currencies (
@@ -48,6 +52,21 @@ export function getSqliteDatabase() {
       updated_at text not null
     );
     create index if not exists expenses_date_idx on expenses(expense_date desc, created_at desc);
+    create table if not exists tags (
+      id text primary key,
+      user_id text not null default '${LOCAL_USER_ID}',
+      name text not null collate nocase unique,
+      created_at text not null,
+      updated_at text not null
+    );
+    create table if not exists expense_tags (
+      expense_id text not null references expenses(id) on delete cascade,
+      tag_id text not null references tags(id) on delete cascade,
+      user_id text not null default '${LOCAL_USER_ID}',
+      created_at text not null,
+      primary key (expense_id, tag_id)
+    );
+    create index if not exists expense_tags_tag_idx on expense_tags(tag_id, expense_id);
     create table if not exists favorite_templates (
       id text primary key,
       user_id text not null default '${LOCAL_USER_ID}',
@@ -90,5 +109,6 @@ export function getSqliteDatabase() {
   const now = new Date().toISOString();
   database.prepare("insert or ignore into enabled_currencies (user_id, code, is_active, created_at, updated_at) values (?, 'TWD', 1, ?, ?)").run(LOCAL_USER_ID, now, now);
   globalSqlite.accountingSqlite = database;
+  globalSqlite.accountingSqliteSchemaVersion = LOCAL_SCHEMA_VERSION;
   return database;
 }
