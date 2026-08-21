@@ -7,7 +7,7 @@ export function AppIconDesign() {
     justifyContent: "center",
     position: "relative",
     overflow: "hidden",
-    background: "linear-gradient(145deg, #fffef7 0%, #f7f8e6 72%)",
+    background: "linear-gradient(145deg, #f4f3e6 0%, #e7ead6 72%)",
   }}>
     <div style={{
       position: "absolute",
@@ -41,7 +41,7 @@ export function AppIconDesign() {
       justifyContent: "center",
       borderRadius: "50%",
       background: "linear-gradient(145deg, #b2d959 0%, #7ec151 100%)",
-      border: "6px solid #fffef7",
+      border: "6px solid #f4f3e6",
       boxShadow: "0 8px 20px rgba(0,0,0,.36)",
     }}>
       <div style={{ width: "54%", height: "54%", borderRadius: "50%", border: "4px solid rgba(51,91,40,.62)" }} />

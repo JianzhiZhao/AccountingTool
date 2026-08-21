@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   description: "安全、簡單的私人雲端記帳工具",
   appleWebApp: { capable: true, title: "小帳本", statusBarStyle: "black-translucent" },
 };
-export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#f7f8e6" };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#e7ead6" };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return <html lang="zh-Hant"><body className={noto.variable}>{children}</body></html>;
