@@ -7,6 +7,7 @@ const noto = Noto_Sans_TC({ subsets: ["latin"], variable: "--font-sans", display
 export const metadata: Metadata = {
   title: { default: "小帳本", template: "%s｜小帳本" },
   description: "安全、簡單的私人雲端記帳工具",
+  appleWebApp: { capable: true, title: "小帳本", statusBarStyle: "black-translucent" },
 };
 export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#090d0b" };
 
