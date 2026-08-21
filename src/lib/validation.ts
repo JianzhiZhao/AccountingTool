@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const tagIdsSchema = z.array(z.string().uuid("Tag 格式不正確")).default([]);
+
 export const expenseInputSchema = z.object({
   item_name: z.string().trim().min(1, "請輸入項目名稱").max(100, "項目名稱最多 100 字"),
   expense_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "請選擇有效日期").refine(isRealDate, "請選擇有效日期"),
@@ -8,7 +10,7 @@ export const expenseInputSchema = z.object({
   category_id: z.string().uuid("請選擇分類"),
   note: z.string().trim().max(500, "備註最多 500 字"),
   exchange_rate_to_twd: z.coerce.number().positive("匯率必須大於 0"),
-  tag_ids: z.array(z.string().uuid("Tag 格式不正確")).default([]),
+  tag_ids: tagIdsSchema,
 }).superRefine((value, context) => {
   if (value.currency_code === "TWD" && value.exchange_rate_to_twd !== 1) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["exchange_rate_to_twd"], message: "TWD 匯率固定為 1" });

@@ -30,6 +30,7 @@ vi.mock("@/lib/data", () => ({
       sort_order: 0,
       created_at: "2026-08-21",
       updated_at: "2026-08-21",
+      tags: [{ id: "22222222-2222-4222-8222-222222222222", name: "通勤" }],
     },
   ]),
   listTags: vi.fn().mockResolvedValue([{ id: "22222222-2222-4222-8222-222222222222", user_id: "dev-user", name: "通勤", created_at: "2026-08-21", updated_at: "2026-08-21" }]),
@@ -57,12 +58,20 @@ describe("ExpenseForm", () => {
     expect(saveExpense).not.toHaveBeenCalled();
   });
 
-  it("saves multiple tags only when the optional tag is selected", async () => {
+  it("loads and saves the tags configured on a favorite", async () => {
+    render(<ExpenseForm />);
+    fireEvent.click(await screen.findByRole("button", { name: /下班公車費/ }));
+    fireEvent.click(screen.getByRole("button", { name: "完成記帳" }));
+
+    await waitFor(() => expect(saveExpense).toHaveBeenCalledWith(expect.objectContaining({ tag_ids: ["22222222-2222-4222-8222-222222222222"] }), undefined));
+  });
+
+  it("allows removing a favorite's default tag before saving", async () => {
     render(<ExpenseForm />);
     fireEvent.click(await screen.findByRole("button", { name: /下班公車費/ }));
     fireEvent.click(screen.getByRole("button", { name: "#通勤" }));
     fireEvent.click(screen.getByRole("button", { name: "完成記帳" }));
 
-    await waitFor(() => expect(saveExpense).toHaveBeenCalledWith(expect.objectContaining({ tag_ids: ["22222222-2222-4222-8222-222222222222"] }), undefined));
+    await waitFor(() => expect(saveExpense).toHaveBeenCalledWith(expect.objectContaining({ tag_ids: [] }), undefined));
   });
 });

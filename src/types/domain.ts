@@ -53,6 +53,18 @@ export type FavoriteTemplate = {
   created_at: string;
   updated_at: string;
   categories?: Pick<Category, "id" | "name" | "is_active"> | null;
+  tags?: Pick<Tag, "id" | "name">[];
+};
+
+export type FavoriteInput = {
+  item_name: string;
+  default_amount: number;
+  currency_code: string;
+  category_id: string;
+  note: string;
+  default_exchange_rate_to_twd: number;
+  sort_order: number;
+  tag_ids: string[];
 };
 
 export type UserSettings = {

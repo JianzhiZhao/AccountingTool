@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import { isSqliteDevelopment } from "@/lib/backend";
-import type { Category, EnabledCurrency, Expense, ExpenseFilters, ExpenseInput, FavoriteTemplate, Tag } from "@/types/domain";
+import type { Category, EnabledCurrency, Expense, ExpenseFilters, ExpenseInput, FavoriteInput, FavoriteTemplate, Tag } from "@/types/domain";
 
 const LOCAL_USER_ID = "local-dev-user";
 
@@ -50,7 +50,7 @@ export async function listTags() {
 
 export async function listFavorites() {
   if (isSqliteDevelopment()) return devGet<FavoriteTemplate[]>("favorites");
-  const { data, error } = await createClient().from("favorite_templates").select("*, categories(id,name,is_active)").order("sort_order").order("created_at");
+  const { data, error } = await createClient().from("favorite_templates").select("*, categories(id,name,is_active), favorite_template_tags(tags(id,name))").order("sort_order").order("created_at");
   if (error) throw error;
   return (data ?? []).map(numericFavorite) as FavoriteTemplate[];
 }
@@ -142,12 +142,21 @@ export async function toggleCurrency(code: string, isActive: boolean) {
   if (error) throw error;
 }
 
-export async function saveFavorite(input: Omit<FavoriteTemplate, "id" | "user_id" | "created_at" | "updated_at" | "categories">, id?: string) {
+export async function saveFavorite(input: FavoriteInput, id?: string) {
   if (isSqliteDevelopment()) { await devPost({ action: "saveFavorite", input, id }); return; }
-  const payload = { ...input, user_id: await userId(), default_exchange_rate_to_twd: input.currency_code === "TWD" ? 1 : input.default_exchange_rate_to_twd };
-  const query = id ? createClient().from("favorite_templates").update(payload).eq("id", id) : createClient().from("favorite_templates").insert(payload);
-  const { error } = await query;
+  const client = createClient(); const uid = await userId(); const { tag_ids, ...favoriteInput } = input;
+  const payload = { ...favoriteInput, user_id: uid, default_exchange_rate_to_twd: input.currency_code === "TWD" ? 1 : input.default_exchange_rate_to_twd };
+  const { data, error } = id
+    ? await client.from("favorite_templates").update(payload).eq("id", id).select("id").single()
+    : await client.from("favorite_templates").insert(payload).select("id").single();
   if (error) throw error;
+  const favoriteId = data.id;
+  const { error: deleteError } = await client.from("favorite_template_tags").delete().eq("favorite_template_id", favoriteId);
+  if (deleteError) throw deleteError;
+  if (tag_ids.length) {
+    const { error: tagError } = await client.from("favorite_template_tags").insert(tag_ids.map((tagId) => ({ favorite_template_id: favoriteId, tag_id: tagId, user_id: uid })));
+    if (tagError) throw tagError;
+  }
 }
 
 export async function deleteFavorite(id: string) {
@@ -173,6 +182,7 @@ function numericExpense(row: Record<string, unknown>): Expense {
   const links = Array.isArray(row.expense_tags) ? row.expense_tags as { tags?: { id: string; name: string } | null }[] : [];
   return { ...row, expense_tags: undefined, tags: links.flatMap((link) => link.tags ? [link.tags] : []), amount: Number(row.amount), exchange_rate_to_twd: Number(row.exchange_rate_to_twd), amount_twd: Number(row.amount_twd) } as unknown as Expense;
 }
-function numericFavorite(row: Record<string, unknown>) {
-  return { ...row, default_amount: Number(row.default_amount), default_exchange_rate_to_twd: Number(row.default_exchange_rate_to_twd) };
+function numericFavorite(row: Record<string, unknown>): FavoriteTemplate {
+  const links = Array.isArray(row.favorite_template_tags) ? row.favorite_template_tags as { tags?: { id: string; name: string } | null }[] : [];
+  return { ...row, favorite_template_tags: undefined, tags: links.flatMap((link) => link.tags ? [link.tags] : []), default_amount: Number(row.default_amount), default_exchange_rate_to_twd: Number(row.default_exchange_rate_to_twd) } as unknown as FavoriteTemplate;
 }

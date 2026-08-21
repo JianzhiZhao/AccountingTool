@@ -10,7 +10,7 @@ const globalSqlite = globalThis as typeof globalThis & {
 };
 
 export const LOCAL_USER_ID = "local-dev-user";
-const LOCAL_SCHEMA_VERSION = 2;
+const LOCAL_SCHEMA_VERSION = 3;
 
 export function getSqliteDatabase() {
   if (process.env.NODE_ENV !== "development") throw new Error("SQLite 僅能在開發模式使用");
@@ -106,6 +106,16 @@ export function getSqliteDatabase() {
       alter table favorite_templates_new rename to favorite_templates;
     `);
   }
+  database.exec(`
+    create table if not exists favorite_template_tags (
+      favorite_template_id text not null references favorite_templates(id) on delete cascade,
+      tag_id text not null references tags(id) on delete cascade,
+      user_id text not null default '${LOCAL_USER_ID}',
+      created_at text not null,
+      primary key (favorite_template_id, tag_id)
+    );
+    create index if not exists favorite_template_tags_tag_idx on favorite_template_tags(tag_id, favorite_template_id);
+  `);
   const now = new Date().toISOString();
   database.prepare("insert or ignore into enabled_currencies (user_id, code, is_active, created_at, updated_at) values (?, 'TWD', 1, ?, ?)").run(LOCAL_USER_ID, now, now);
   globalSqlite.accountingSqlite = database;

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { isSqliteDevelopment } from "@/lib/backend";
 import { getSqliteDatabase, LOCAL_USER_ID } from "@/lib/sqlite/database";
-import { normalizeExpenseInput, categoryNameSchema, tagNameSchema } from "@/lib/validation";
+import { normalizeExpenseInput, categoryNameSchema, tagIdsSchema, tagNameSchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,7 +29,8 @@ export async function GET(request: NextRequest) {
     }
     if (resource === "favorites") {
       const rows = db.prepare(`select f.*, c.name as category_name, c.is_active as category_active from favorite_templates f join categories c on c.id = f.category_id order by f.sort_order, f.created_at`).all();
-      return NextResponse.json(rows.map((raw) => { const row = raw as Record<string, unknown>; return { ...row, default_amount: Number(row.default_amount), default_exchange_rate_to_twd: Number(row.default_exchange_rate_to_twd), categories: { id: row.category_id, name: row.category_name, is_active: Boolean(row.category_active) }, category_name: undefined, category_active: undefined }; }));
+      const tagQuery = db.prepare("select t.id, t.name from tags t join favorite_template_tags ft on ft.tag_id=t.id where ft.favorite_template_id=? order by t.name collate nocase");
+      return NextResponse.json(rows.map((raw) => { const row = raw as Record<string, unknown>; return { ...row, default_amount: Number(row.default_amount), default_exchange_rate_to_twd: Number(row.default_exchange_rate_to_twd), tags: tagQuery.all(String(row.id)), categories: { id: row.category_id, name: row.category_name, is_active: Boolean(row.category_active) }, category_name: undefined, category_active: undefined }; }));
     }
     if (resource === "expenses") {
       const where: string[] = []; const values: string[] = [];
@@ -84,10 +85,18 @@ export async function POST(request: NextRequest) {
     }
     if (action === "saveFavorite") {
       const input = body.input as Record<string, unknown>; const id = typeof body.id === "string" ? body.id : randomUUID(); const rate = input.currency_code === "TWD" ? 1 : Number(input.default_exchange_rate_to_twd);
+      const tagIds = tagIdsSchema.parse(input.tag_ids);
       if (!String(input.item_name ?? "").trim() || Number(input.default_amount) <= 0 || rate <= 0) throw new Error("常用項目資料不完整");
       const values = [String(input.item_name).trim(), String(input.default_amount), String(input.currency_code), String(input.category_id), String(input.note ?? "").trim(), String(rate), Number(input.sort_order ?? 0), now];
-      if (body.id) db.prepare("update favorite_templates set item_name=?,default_amount=?,currency_code=?,category_id=?,note=?,default_exchange_rate_to_twd=?,sort_order=?,updated_at=? where id=?").run(...values, id);
-      else db.prepare("insert into favorite_templates values (?,?,?,?,?,?,?,?,?,?,?)").run(id, LOCAL_USER_ID, ...values.slice(0, 7), now, now);
+      db.exec("begin");
+      try {
+        if (body.id) db.prepare("update favorite_templates set item_name=?,default_amount=?,currency_code=?,category_id=?,note=?,default_exchange_rate_to_twd=?,sort_order=?,updated_at=? where id=?").run(...values, id);
+        else db.prepare("insert into favorite_templates values (?,?,?,?,?,?,?,?,?,?,?)").run(id, LOCAL_USER_ID, ...values.slice(0, 7), now, now);
+        db.prepare("delete from favorite_template_tags where favorite_template_id=?").run(id);
+        const addTag = db.prepare("insert into favorite_template_tags (favorite_template_id,tag_id,user_id,created_at) values (?,?,?,?)");
+        for (const tagId of tagIds) addTag.run(id, tagId, LOCAL_USER_ID, now);
+        db.exec("commit");
+      } catch (error) { db.exec("rollback"); throw error; }
       return NextResponse.json({ id });
     }
     if (action === "deleteFavorite") { db.prepare("delete from favorite_templates where id=?").run(String(body.id)); return NextResponse.json({ ok: true }); }
