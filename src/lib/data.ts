@@ -25,7 +25,7 @@ async function userId() {
 
 export async function listCategories(includeInactive = false) {
   if (isSqliteDevelopment()) return devGet<Category[]>("categories", { includeInactive });
-  let query = createClient().from("categories").select("*").order("is_active", { ascending: false }).order("name");
+  let query = createClient().from("categories").select("*").order("sort_order").order("name");
   if (!includeInactive) query = query.eq("is_active", true);
   const { data, error } = await query;
   if (error) throw error;
@@ -43,7 +43,7 @@ export async function listCurrencies(includeInactive = false) {
 
 export async function listTags() {
   if (isSqliteDevelopment()) return devGet<Tag[]>("tags");
-  const { data, error } = await createClient().from("tags").select("*").order("name");
+  const { data, error } = await createClient().from("tags").select("*").order("sort_order").order("name");
   if (error) throw error;
   return data as Tag[];
 }
@@ -105,10 +105,22 @@ export async function deleteExpense(id: string) {
 
 export async function saveCategory(name: string, id?: string) {
   if (isSqliteDevelopment()) { await devPost({ action: "saveCategory", name, id }); return; }
-  const { error } = id
-    ? await createClient().from("categories").update({ name: name.trim() }).eq("id", id)
-    : await createClient().from("categories").insert({ name: name.trim(), user_id: await userId() });
+  const client = createClient();
+  let error;
+  if (id) ({ error } = await client.from("categories").update({ name: name.trim() }).eq("id", id));
+  else {
+    const { data: last, error: orderError } = await client.from("categories").select("sort_order").order("sort_order", { ascending: false }).limit(1).maybeSingle();
+    if (orderError) throw orderError;
+    ({ error } = await client.from("categories").insert({ name: name.trim(), user_id: await userId(), sort_order: Number(last?.sort_order ?? -1) + 1 }));
+  }
   if (error) throw error;
+}
+
+export async function reorderCategories(ids: string[]) {
+  if (isSqliteDevelopment()) { await devPost({ action: "reorderCategories", ids }); return; }
+  const client = createClient();
+  const results = await Promise.all(ids.map((id, sort_order) => client.from("categories").update({ sort_order }).eq("id", id)));
+  const failed = results.find((result) => result.error); if (failed?.error) throw failed.error;
 }
 
 export async function toggleCategory(id: string, isActive: boolean) {
@@ -125,8 +137,18 @@ export async function deleteCategory(id: string) {
 
 export async function saveTag(name: string) {
   if (isSqliteDevelopment()) { await devPost({ action: "saveTag", name }); return; }
-  const { error } = await createClient().from("tags").insert({ name: name.trim(), user_id: await userId() });
+  const client = createClient();
+  const { data: last, error: orderError } = await client.from("tags").select("sort_order").order("sort_order", { ascending: false }).limit(1).maybeSingle();
+  if (orderError) throw orderError;
+  const { error } = await client.from("tags").insert({ name: name.trim(), user_id: await userId(), sort_order: Number(last?.sort_order ?? -1) + 1 });
   if (error) throw error;
+}
+
+export async function reorderTags(ids: string[]) {
+  if (isSqliteDevelopment()) { await devPost({ action: "reorderTags", ids }); return; }
+  const client = createClient();
+  const results = await Promise.all(ids.map((id, sort_order) => client.from("tags").update({ sort_order }).eq("id", id)));
+  const failed = results.find((result) => result.error); if (failed?.error) throw failed.error;
 }
 
 export async function deleteTag(id: string) {

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { isSqliteDevelopment } from "@/lib/backend";
 import { getSqliteDatabase, LOCAL_USER_ID } from "@/lib/sqlite/database";
-import { normalizeExpenseInput, categoryNameSchema, exchangeRateSchema, tagIdsSchema, tagNameSchema } from "@/lib/validation";
+import { normalizeExpenseInput, categoryNameSchema, exchangeRateSchema, orderedIdsSchema, tagIdsSchema, tagNameSchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     const db = getSqliteDatabase(); const resource = request.nextUrl.searchParams.get("resource");
     const includeInactive = request.nextUrl.searchParams.get("includeInactive") === "true";
     if (resource === "categories") {
-      const rows = db.prepare(`select * from categories ${includeInactive ? "" : "where is_active = 1"} order by is_active desc, name`).all();
+      const rows = db.prepare(`select * from categories ${includeInactive ? "" : "where is_active = 1"} order by sort_order, name collate nocase`).all();
       return NextResponse.json(rows.map((row) => booleanRow(row as Record<string, unknown>)));
     }
     if (resource === "currencies") {
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(rows.map((raw) => { const row = booleanRow(raw as Record<string, unknown>); return { ...row, default_exchange_rate_to_twd: Number(row.default_exchange_rate_to_twd) }; }));
     }
     if (resource === "tags") {
-      return NextResponse.json(db.prepare("select * from tags order by name collate nocase").all());
+      return NextResponse.json(db.prepare("select * from tags order by sort_order, name collate nocase").all());
     }
     if (resource === "favorites") {
       const rows = db.prepare(`select f.*, c.name as category_name, c.is_active as category_active from favorite_templates f join categories c on c.id = f.category_id order by f.sort_order, f.created_at`).all();
@@ -67,15 +67,30 @@ export async function POST(request: NextRequest) {
     if (action === "deleteExpense") { db.prepare("delete from expenses where id=?").run(String(body.id)); return NextResponse.json({ ok: true }); }
     if (action === "saveCategory") {
       const name = categoryNameSchema.parse(body.name); const id = typeof body.id === "string" ? body.id : randomUUID();
-      if (body.id) db.prepare("update categories set name=?, updated_at=? where id=?").run(name, now, id); else db.prepare("insert into categories values (?, ?, ?, 1, ?, ?)").run(id, LOCAL_USER_ID, name, now, now);
+      if (body.id) db.prepare("update categories set name=?, updated_at=? where id=?").run(name, now, id);
+      else {
+        const next = db.prepare("select coalesce(max(sort_order), -1) + 1 as value from categories").get() as { value: number };
+        db.prepare("insert into categories (id,user_id,name,is_active,sort_order,created_at,updated_at) values (?, ?, ?, 1, ?, ?, ?)").run(id, LOCAL_USER_ID, name, next.value, now, now);
+      }
       return NextResponse.json({ id });
+    }
+    if (action === "reorderCategories") {
+      const ids = orderedIdsSchema.parse(body.ids); const update = db.prepare("update categories set sort_order=?, updated_at=? where id=?");
+      db.exec("begin"); try { ids.forEach((id, index) => update.run(index, now, id)); db.exec("commit"); } catch (error) { db.exec("rollback"); throw error; }
+      return NextResponse.json({ ok: true });
     }
     if (action === "toggleCategory") { db.prepare("update categories set is_active=?, updated_at=? where id=?").run(body.isActive ? 1 : 0, now, String(body.id)); return NextResponse.json({ ok: true }); }
     if (action === "deleteCategory") { db.prepare("delete from categories where id=?").run(String(body.id)); return NextResponse.json({ ok: true }); }
     if (action === "saveTag") {
       const name = tagNameSchema.parse(body.name); const id = randomUUID();
-      db.prepare("insert into tags values (?,?,?,?,?)").run(id, LOCAL_USER_ID, name, now, now);
+      const next = db.prepare("select coalesce(max(sort_order), -1) + 1 as value from tags").get() as { value: number };
+      db.prepare("insert into tags (id,user_id,name,sort_order,created_at,updated_at) values (?,?,?,?,?,?)").run(id, LOCAL_USER_ID, name, next.value, now, now);
       return NextResponse.json({ id });
+    }
+    if (action === "reorderTags") {
+      const ids = orderedIdsSchema.parse(body.ids); const update = db.prepare("update tags set sort_order=?, updated_at=? where id=?");
+      db.exec("begin"); try { ids.forEach((id, index) => update.run(index, now, id)); db.exec("commit"); } catch (error) { db.exec("rollback"); throw error; }
+      return NextResponse.json({ ok: true });
     }
     if (action === "deleteTag") { db.prepare("delete from tags where id=?").run(String(body.id)); return NextResponse.json({ ok: true }); }
     if (action === "toggleCurrency") {

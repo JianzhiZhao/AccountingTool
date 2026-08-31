@@ -3,6 +3,7 @@ export type Category = {
   user_id: string;
   name: string;
   is_active: boolean;
+  sort_order: number;
   created_at: string;
   updated_at: string;
 };
@@ -20,6 +21,7 @@ export type Tag = {
   id: string;
   user_id: string;
   name: string;
+  sort_order: number;
   created_at: string;
   updated_at: string;
 };

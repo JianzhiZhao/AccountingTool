@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const tagIdsSchema = z.array(z.string().uuid("Tag 格式不正確")).default([]);
+export const orderedIdsSchema = z.array(z.string().uuid("排序資料格式不正確")).max(500, "排序項目過多");
 export const exchangeRateSchema = z.coerce.number().positive("匯率必須大於 0");
 
 export const expenseInputSchema = z.object({
