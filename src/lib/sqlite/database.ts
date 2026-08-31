@@ -10,7 +10,7 @@ const globalSqlite = globalThis as typeof globalThis & {
 };
 
 export const LOCAL_USER_ID = "local-dev-user";
-const LOCAL_SCHEMA_VERSION = 5;
+const LOCAL_SCHEMA_VERSION = 6;
 
 export function getSqliteDatabase() {
   if (process.env.NODE_ENV !== "development") throw new Error("SQLite 僅能在開發模式使用");
@@ -58,6 +58,7 @@ export function getSqliteDatabase() {
       id text primary key,
       user_id text not null default '${LOCAL_USER_ID}',
       name text not null collate nocase unique,
+      is_active integer not null default 1,
       sort_order integer not null default 0,
       created_at text not null,
       updated_at text not null
@@ -100,6 +101,9 @@ export function getSqliteDatabase() {
     `);
   }
   const tagColumns = database.prepare("pragma table_info(tags)").all() as { name: string }[];
+  if (!tagColumns.some((column) => column.name === "is_active")) {
+    database.exec("alter table tags add column is_active integer not null default 1");
+  }
   if (!tagColumns.some((column) => column.name === "sort_order")) {
     database.exec(`
       alter table tags add column sort_order integer not null default 0;
@@ -110,7 +114,8 @@ export function getSqliteDatabase() {
   }
   database.exec(`
     create index if not exists categories_sort_idx on categories(sort_order, name);
-    create index if not exists tags_sort_idx on tags(sort_order, name);
+    drop index if exists tags_sort_idx;
+    create index tags_sort_idx on tags(is_active desc, sort_order, name);
   `);
   const favoriteColumns = database.prepare("pragma table_info(favorite_templates)").all() as { name: string }[];
   if (favoriteColumns.some((column) => column.name === "name")) {

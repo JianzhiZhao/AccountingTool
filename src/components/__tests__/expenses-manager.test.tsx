@@ -46,7 +46,7 @@ vi.mock("@/lib/data", () => ({
   listExpenses: listExpenses.mockResolvedValue(expenses),
   listCategories: vi.fn().mockResolvedValue([]),
   listCurrencies: vi.fn().mockResolvedValue([]),
-  listTags: vi.fn().mockResolvedValue([{ id: "tag-travel", user_id: "dev-user", name: "旅遊", created_at: "2026-08-21", updated_at: "2026-08-21" }]),
+  listTags: vi.fn().mockResolvedValue([{ id: "tag-travel", user_id: "dev-user", name: "旅遊", is_active: false, sort_order: 0, created_at: "2026-08-21", updated_at: "2026-08-21" }]),
   deleteExpense: vi.fn(),
 }));
 

@@ -4,10 +4,11 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { reorderById, SettingsManager } from "../settings-manager";
 
-const { reorderCategories, reorderTags, toggleCurrency } = vi.hoisted(() => ({
+const { reorderCategories, reorderTags, toggleCurrency, toggleTag } = vi.hoisted(() => ({
   reorderCategories: vi.fn().mockResolvedValue(undefined),
   reorderTags: vi.fn().mockResolvedValue(undefined),
   toggleCurrency: vi.fn().mockResolvedValue(undefined),
+  toggleTag: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/lib/data", () => ({
@@ -20,8 +21,8 @@ vi.mock("@/lib/data", () => ({
     { user_id: "dev-user", code: "JPY", is_active: true, default_exchange_rate_to_twd: 0.22, created_at: "2026-08-21", updated_at: "2026-08-21" },
   ]),
   listTags: vi.fn().mockResolvedValue([
-    { id: "33333333-3333-4333-8333-333333333333", user_id: "dev-user", name: "工作", sort_order: 0, created_at: "2026-08-21", updated_at: "2026-08-21" },
-    { id: "44444444-4444-4444-8444-444444444444", user_id: "dev-user", name: "旅遊", sort_order: 1, created_at: "2026-08-21", updated_at: "2026-08-21" },
+    { id: "33333333-3333-4333-8333-333333333333", user_id: "dev-user", name: "工作", is_active: true, sort_order: 0, created_at: "2026-08-21", updated_at: "2026-08-21" },
+    { id: "44444444-4444-4444-8444-444444444444", user_id: "dev-user", name: "旅遊", is_active: false, sort_order: 1, created_at: "2026-08-21", updated_at: "2026-08-21" },
   ]),
   saveCategory: vi.fn(),
   toggleCategory: vi.fn(),
@@ -31,11 +32,12 @@ vi.mock("@/lib/data", () => ({
   deleteTag: vi.fn(),
   reorderTags,
   toggleCurrency,
+  toggleTag,
 }));
 
 describe("SettingsManager currency defaults", () => {
   afterEach(cleanup);
-  beforeEach(() => { toggleCurrency.mockClear(); reorderCategories.mockClear(); reorderTags.mockClear(); });
+  beforeEach(() => { toggleCurrency.mockClear(); toggleTag.mockClear(); reorderCategories.mockClear(); reorderTags.mockClear(); });
 
   it("saves the default rate for an enabled currency", async () => {
     render(<SettingsManager />);
@@ -70,5 +72,17 @@ describe("SettingsManager currency defaults", () => {
   it("shows drag handles for tags", async () => {
     render(<SettingsManager />);
     expect(await screen.findByRole("button", { name: "拖拉排序Tag 工作" })).toBeTruthy();
+  });
+
+  it("disables an active tag without deleting it", async () => {
+    render(<SettingsManager />);
+    fireEvent.click(await screen.findByRole("button", { name: "停用 Tag 工作" }));
+    await waitFor(() => expect(toggleTag).toHaveBeenCalledWith("33333333-3333-4333-8333-333333333333", false));
+  });
+
+  it("enables an inactive tag again", async () => {
+    render(<SettingsManager />);
+    fireEvent.click(await screen.findByRole("button", { name: "啟用 Tag 旅遊" }));
+    await waitFor(() => expect(toggleTag).toHaveBeenCalledWith("44444444-4444-4444-8444-444444444444", true));
   });
 });

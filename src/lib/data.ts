@@ -41,9 +41,11 @@ export async function listCurrencies(includeInactive = false) {
   return (data ?? []).map(numericCurrency);
 }
 
-export async function listTags() {
-  if (isSqliteDevelopment()) return devGet<Tag[]>("tags");
-  const { data, error } = await createClient().from("tags").select("*").order("sort_order").order("name");
+export async function listTags(includeInactive = false) {
+  if (isSqliteDevelopment()) return devGet<Tag[]>("tags", { includeInactive });
+  let query = createClient().from("tags").select("*").order("sort_order").order("name");
+  if (!includeInactive) query = query.eq("is_active", true);
+  const { data, error } = await query;
   if (error) throw error;
   return data as Tag[];
 }
@@ -149,6 +151,12 @@ export async function reorderTags(ids: string[]) {
   const client = createClient();
   const results = await Promise.all(ids.map((id, sort_order) => client.from("tags").update({ sort_order }).eq("id", id)));
   const failed = results.find((result) => result.error); if (failed?.error) throw failed.error;
+}
+
+export async function toggleTag(id: string, isActive: boolean) {
+  if (isSqliteDevelopment()) { await devPost({ action: "toggleTag", id, isActive }); return; }
+  const { error } = await createClient().from("tags").update({ is_active: isActive }).eq("id", id);
+  if (error) throw error;
 }
 
 export async function deleteTag(id: string) {

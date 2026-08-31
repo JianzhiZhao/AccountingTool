@@ -25,7 +25,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(rows.map((raw) => { const row = booleanRow(raw as Record<string, unknown>); return { ...row, default_exchange_rate_to_twd: Number(row.default_exchange_rate_to_twd) }; }));
     }
     if (resource === "tags") {
-      return NextResponse.json(db.prepare("select * from tags order by sort_order, name collate nocase").all());
+      const rows = db.prepare(`select * from tags ${includeInactive ? "" : "where is_active = 1"} order by sort_order, name collate nocase`).all();
+      return NextResponse.json(rows.map((row) => booleanRow(row as Record<string, unknown>)));
     }
     if (resource === "favorites") {
       const rows = db.prepare(`select f.*, c.name as category_name, c.is_active as category_active from favorite_templates f join categories c on c.id = f.category_id order by f.sort_order, f.created_at`).all();
@@ -84,7 +85,7 @@ export async function POST(request: NextRequest) {
     if (action === "saveTag") {
       const name = tagNameSchema.parse(body.name); const id = randomUUID();
       const next = db.prepare("select coalesce(max(sort_order), -1) + 1 as value from tags").get() as { value: number };
-      db.prepare("insert into tags (id,user_id,name,sort_order,created_at,updated_at) values (?,?,?,?,?,?)").run(id, LOCAL_USER_ID, name, next.value, now, now);
+      db.prepare("insert into tags (id,user_id,name,is_active,sort_order,created_at,updated_at) values (?,?,?,1,?,?,?)").run(id, LOCAL_USER_ID, name, next.value, now, now);
       return NextResponse.json({ id });
     }
     if (action === "reorderTags") {
@@ -92,6 +93,7 @@ export async function POST(request: NextRequest) {
       db.exec("begin"); try { ids.forEach((id, index) => update.run(index, now, id)); db.exec("commit"); } catch (error) { db.exec("rollback"); throw error; }
       return NextResponse.json({ ok: true });
     }
+    if (action === "toggleTag") { db.prepare("update tags set is_active=?, updated_at=? where id=?").run(body.isActive ? 1 : 0, now, String(body.id)); return NextResponse.json({ ok: true }); }
     if (action === "deleteTag") { db.prepare("delete from tags where id=?").run(String(body.id)); return NextResponse.json({ ok: true }); }
     if (action === "toggleCurrency") {
       const code = String(body.code); const active = code === "TWD" ? true : Boolean(body.isActive);
