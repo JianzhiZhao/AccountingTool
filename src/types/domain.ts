@@ -48,6 +48,7 @@ export type FavoriteTemplate = {
   id: string;
   user_id: string;
   item_name: string;
+  is_active: boolean;
   default_amount: number;
   currency_code: string;
   category_id: string;

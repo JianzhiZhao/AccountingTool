@@ -50,9 +50,11 @@ export async function listTags(includeInactive = false) {
   return data as Tag[];
 }
 
-export async function listFavorites() {
-  if (isSqliteDevelopment()) return devGet<FavoriteTemplate[]>("favorites");
-  const { data, error } = await createClient().from("favorite_templates").select("*, categories(id,name,is_active), favorite_template_tags(tags(id,name))").order("sort_order").order("created_at");
+export async function listFavorites(includeInactive = false) {
+  if (isSqliteDevelopment()) return devGet<FavoriteTemplate[]>("favorites", { includeInactive });
+  let query = createClient().from("favorite_templates").select("*, categories(id,name,is_active), favorite_template_tags(tags(id,name))").order("sort_order").order("created_at");
+  if (!includeInactive) query = query.eq("is_active", true);
+  const { data, error } = await query;
   if (error) throw error;
   return (data ?? []).map(numericFavorite) as FavoriteTemplate[];
 }
@@ -198,6 +200,12 @@ export async function saveFavorite(input: FavoriteInput, id?: string) {
 export async function deleteFavorite(id: string) {
   if (isSqliteDevelopment()) { await devPost({ action: "deleteFavorite", id }); return; }
   const { error } = await createClient().from("favorite_templates").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function toggleFavorite(id: string, isActive: boolean) {
+  if (isSqliteDevelopment()) { await devPost({ action: "toggleFavorite", id, isActive }); return; }
+  const { error } = await createClient().from("favorite_templates").update({ is_active: isActive }).eq("id", id);
   if (error) throw error;
 }
 

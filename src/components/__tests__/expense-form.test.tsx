@@ -4,8 +4,28 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ExpenseForm } from "../expense-form";
 
-const { categoryId, listTags, saveExpense } = vi.hoisted(() => ({
+const { categoryId, listFavorites, listTags, saveExpense } = vi.hoisted(() => ({
   categoryId: "11111111-1111-4111-8111-111111111111",
+  listFavorites: vi.fn().mockResolvedValue([
+    {
+      id: "favorite-bus-home",
+      user_id: "dev-user",
+      item_name: "下班公車費",
+      is_active: true,
+      default_amount: 20,
+      currency_code: "TWD",
+      category_id: "11111111-1111-4111-8111-111111111111",
+      note: "",
+      default_exchange_rate_to_twd: 1,
+      sort_order: 0,
+      created_at: "2026-08-21",
+      updated_at: "2026-08-21",
+      tags: [
+        { id: "22222222-2222-4222-8222-222222222222", name: "通勤" },
+        { id: "33333333-3333-4333-8333-333333333333", name: "停用標籤" },
+      ],
+    },
+  ]),
   listTags: vi.fn((includeInactive = false) => Promise.resolve([
     { id: "22222222-2222-4222-8222-222222222222", user_id: "dev-user", name: "通勤", is_active: true, sort_order: 0, created_at: "2026-08-21", updated_at: "2026-08-21" },
     ...(includeInactive ? [{ id: "33333333-3333-4333-8333-333333333333", user_id: "dev-user", name: "停用標籤", is_active: false, sort_order: 1, created_at: "2026-08-21", updated_at: "2026-08-21" }] : []),
@@ -21,38 +41,27 @@ vi.mock("@/lib/data", () => ({
     { user_id: "dev-user", code: "JPY", is_active: true, default_exchange_rate_to_twd: 0.22, created_at: "2026-08-21", updated_at: "2026-08-21" },
     { user_id: "dev-user", code: "TWD", is_active: true, default_exchange_rate_to_twd: 1, created_at: "2026-08-21", updated_at: "2026-08-21" },
   ]),
-  listFavorites: vi.fn().mockResolvedValue([
-    {
-      id: "favorite-bus-home",
-      user_id: "dev-user",
-      item_name: "下班公車費",
-      default_amount: 20,
-      currency_code: "TWD",
-      category_id: categoryId,
-      note: "",
-      default_exchange_rate_to_twd: 1,
-      sort_order: 0,
-      created_at: "2026-08-21",
-      updated_at: "2026-08-21",
-      tags: [
-        { id: "22222222-2222-4222-8222-222222222222", name: "通勤" },
-        { id: "33333333-3333-4333-8333-333333333333", name: "停用標籤" },
-      ],
-    },
-  ]),
+  listFavorites,
   listTags,
   saveExpense,
 }));
 
 describe("ExpenseForm", () => {
   afterEach(cleanup);
-  beforeEach(() => { saveExpense.mockClear(); listTags.mockClear(); });
+  beforeEach(() => { saveExpense.mockClear(); listFavorites.mockClear(); listTags.mockClear(); });
 
   it("hides inactive tags when creating a new expense", async () => {
     render(<ExpenseForm />);
     expect(await screen.findByRole("button", { name: "#通勤" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "#停用標籤" })).toBeNull();
     expect(listTags).toHaveBeenCalledWith(false);
+  });
+
+  it("requests only active favorites when creating an expense", async () => {
+    render(<ExpenseForm />);
+
+    await screen.findByRole("button", { name: /下班公車費/ });
+    expect(listFavorites).toHaveBeenCalledWith(false);
   });
 
   it("keeps an assigned inactive tag visible while editing an existing expense", async () => {

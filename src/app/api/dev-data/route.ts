@@ -29,9 +29,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(rows.map((row) => booleanRow(row as Record<string, unknown>)));
     }
     if (resource === "favorites") {
-      const rows = db.prepare(`select f.*, c.name as category_name, c.is_active as category_active from favorite_templates f join categories c on c.id = f.category_id order by f.sort_order, f.created_at`).all();
+      const rows = db.prepare(`select f.*, c.name as category_name, c.is_active as category_active from favorite_templates f join categories c on c.id = f.category_id ${includeInactive ? "" : "where f.is_active = 1"} order by f.sort_order, f.created_at`).all();
       const tagQuery = db.prepare("select t.id, t.name from tags t join favorite_template_tags ft on ft.tag_id=t.id where ft.favorite_template_id=? order by t.name collate nocase");
-      return NextResponse.json(rows.map((raw) => { const row = raw as Record<string, unknown>; return { ...row, default_amount: Number(row.default_amount), default_exchange_rate_to_twd: Number(row.default_exchange_rate_to_twd), tags: tagQuery.all(String(row.id)), categories: { id: row.category_id, name: row.category_name, is_active: Boolean(row.category_active) }, category_name: undefined, category_active: undefined }; }));
+      return NextResponse.json(rows.map((raw) => { const row = booleanRow(raw as Record<string, unknown>); return { ...row, default_amount: Number(row.default_amount), default_exchange_rate_to_twd: Number(row.default_exchange_rate_to_twd), tags: tagQuery.all(String(row.id)), categories: { id: row.category_id, name: row.category_name, is_active: Boolean(row.category_active) }, category_name: undefined, category_active: undefined }; }));
     }
     if (resource === "expenses") {
       const where: string[] = []; const values: string[] = [];
@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
       db.exec("begin");
       try {
         if (body.id) db.prepare("update favorite_templates set item_name=?,default_amount=?,currency_code=?,category_id=?,note=?,default_exchange_rate_to_twd=?,sort_order=?,updated_at=? where id=?").run(...values, id);
-        else db.prepare("insert into favorite_templates values (?,?,?,?,?,?,?,?,?,?,?)").run(id, LOCAL_USER_ID, ...values.slice(0, 7), now, now);
+        else db.prepare("insert into favorite_templates (id,user_id,item_name,default_amount,currency_code,category_id,note,default_exchange_rate_to_twd,sort_order,created_at,updated_at) values (?,?,?,?,?,?,?,?,?,?,?)").run(id, LOCAL_USER_ID, ...values.slice(0, 7), now, now);
         db.prepare("delete from favorite_template_tags where favorite_template_id=?").run(id);
         const addTag = db.prepare("insert into favorite_template_tags (favorite_template_id,tag_id,user_id,created_at) values (?,?,?,?)");
         for (const tagId of tagIds) addTag.run(id, tagId, LOCAL_USER_ID, now);
@@ -119,6 +119,7 @@ export async function POST(request: NextRequest) {
       } catch (error) { db.exec("rollback"); throw error; }
       return NextResponse.json({ id });
     }
+    if (action === "toggleFavorite") { db.prepare("update favorite_templates set is_active=?, updated_at=? where id=?").run(body.isActive ? 1 : 0, now, String(body.id)); return NextResponse.json({ ok: true }); }
     if (action === "deleteFavorite") { db.prepare("delete from favorite_templates where id=?").run(String(body.id)); return NextResponse.json({ ok: true }); }
     if (action === "insertImportedExpense") {
       const input = normalizeExpenseInput(body.input); const id = String(body.id); const createdAt = String(body.createdAt); const updatedAt = String(body.updatedAt);
