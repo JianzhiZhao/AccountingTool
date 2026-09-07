@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { amountToScaledUnits, amountToWholeUnits, MAX_DAILY_PERIODS, MAX_MONTHLY_PERIODS } from "@/lib/amortization";
 
 export const tagIdsSchema = z.array(z.string().uuid("Tag 格式不正確")).default([]);
 export const orderedIdsSchema = z.array(z.string().uuid("排序資料格式不正確")).max(500, "排序項目過多");
@@ -13,9 +14,35 @@ export const expenseInputSchema = z.object({
   note: z.string().trim().max(500, "備註最多 500 字"),
   exchange_rate_to_twd: exchangeRateSchema,
   tag_ids: tagIdsSchema,
+  expense_type: z.enum(["general", "prepaid"]).default("general"),
+  amortization_unit: z.enum(["month", "day"]).nullable().optional(),
+  amortization_periods: z.coerce.number().int("期數必須是整數").nullable().optional(),
+  amortization_start_date: z.string().nullable().optional(),
 }).superRefine((value, context) => {
   if (value.currency_code === "TWD" && value.exchange_rate_to_twd !== 1) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["exchange_rate_to_twd"], message: "TWD 匯率固定為 1" });
+  }
+  try { amountToScaledUnits(value.amount); }
+  catch (error) { context.addIssue({ code: z.ZodIssueCode.custom, path: ["amount"], message: error instanceof Error ? error.message : "金額格式不正確" }); }
+  if (value.expense_type === "general") {
+    if (value.amortization_unit || value.amortization_periods || value.amortization_start_date) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["expense_type"], message: "一般帳目不可包含攤提設定" });
+    }
+    return;
+  }
+  try { amountToWholeUnits(value.amount); }
+  catch (error) { context.addIssue({ code: z.ZodIssueCode.custom, path: ["amount"], message: error instanceof Error ? error.message : "預付金額必須是整數" }); }
+  if (!value.amortization_unit) context.addIssue({ code: z.ZodIssueCode.custom, path: ["amortization_unit"], message: "請選擇攤提單位" });
+  if (!value.amortization_start_date || !isRealDate(value.amortization_start_date)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["amortization_start_date"], message: "請選擇有效的攤提開始日期" });
+  else if (value.amortization_start_date < value.expense_date) context.addIssue({ code: z.ZodIssueCode.custom, path: ["amortization_start_date"], message: "攤提開始日期不得早於付款日期" });
+  if (value.amortization_periods == null) context.addIssue({ code: z.ZodIssueCode.custom, path: ["amortization_periods"], message: "請輸入攤提期數" });
+  else if (value.amortization_unit) {
+    const maximum = value.amortization_unit === "month" ? MAX_MONTHLY_PERIODS : MAX_DAILY_PERIODS;
+    if (value.amortization_periods < 1 || value.amortization_periods > maximum) context.addIssue({ code: z.ZodIssueCode.custom, path: ["amortization_periods"], message: `期數必須介於 1 至 ${maximum}` });
+    else {
+      try { if (value.amortization_periods > amountToWholeUnits(value.amount)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["amortization_periods"], message: "期數過多，會產生金額為零的攤提" }); }
+      catch { /* amount issue is reported above */ }
+    }
   }
 });
 
@@ -29,5 +56,12 @@ export const tagNameSchema = z.string().trim().min(1, "請輸入 Tag 名稱").ma
 
 export function normalizeExpenseInput(input: unknown) {
   const parsed = expenseInputSchema.parse(input);
-  return { ...parsed, exchange_rate_to_twd: parsed.currency_code === "TWD" ? 1 : parsed.exchange_rate_to_twd };
+  const prepaid = parsed.expense_type === "prepaid";
+  return {
+    ...parsed,
+    exchange_rate_to_twd: parsed.currency_code === "TWD" ? 1 : parsed.exchange_rate_to_twd,
+    amortization_unit: prepaid ? parsed.amortization_unit! : null,
+    amortization_periods: prepaid ? parsed.amortization_periods! : null,
+    amortization_start_date: prepaid ? parsed.amortization_start_date! : null,
+  };
 }

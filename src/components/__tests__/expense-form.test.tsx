@@ -76,6 +76,12 @@ describe("ExpenseForm", () => {
       note: "",
       exchange_rate_to_twd: 1,
       amount_twd: 20,
+      expense_type: "general",
+      parent_expense_id: null,
+      amortization_unit: null,
+      amortization_periods: null,
+      amortization_start_date: null,
+      amortization_sequence: null,
       created_at: "2026-08-21",
       updated_at: "2026-08-21",
       tags: [{ id: "33333333-3333-4333-8333-333333333333", name: "停用標籤" }],
@@ -126,5 +132,28 @@ describe("ExpenseForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "完成記帳" }));
 
     await waitFor(() => expect(saveExpense).toHaveBeenCalledWith(expect.objectContaining({ tag_ids: [] }), undefined));
+  });
+
+  it("previews and saves a complete prepaid schedule", async () => {
+    render(<ExpenseForm />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /預付支出/ }));
+    fireEvent.change(screen.getByLabelText("項目名稱 *"), { target: { value: "年度保險" } });
+    fireEvent.change(screen.getByLabelText("金額 *"), { target: { value: "100" } });
+    fireEvent.change(screen.getByLabelText("期數 *"), { target: { value: "3" } });
+
+    expect(screen.getByText("查看完整 3 期預覽")).toBeTruthy();
+    expect(screen.getAllByText("33 TWD").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("34 TWD").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/33\.333/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "建立預付與攤提" }));
+
+    await waitFor(() => expect(saveExpense).toHaveBeenCalledWith(expect.objectContaining({
+      item_name: "年度保險",
+      expense_type: "prepaid",
+      amortization_unit: "month",
+      amortization_periods: 3,
+      amortization_start_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    }), undefined));
   });
 });

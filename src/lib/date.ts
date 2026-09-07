@@ -14,6 +14,11 @@ export function currentMonthRange(now = new Date()) {
   return { from: `${year}-${month}-01`, to: `${year}-${month}-${String(lastDay).padStart(2, "0")}` };
 }
 
+export function currentMonthToToday(now = new Date()) {
+  const today = todayInTaipei(now);
+  return { from: `${today.slice(0, 7)}-01`, to: today };
+}
+
 export function formatDateZh(date: string) {
   return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", year: "numeric", month: "short", day: "numeric" })
     .format(new Date(`${date}T12:00:00+08:00`));

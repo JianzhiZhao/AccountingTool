@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
+import type { StatementSync } from "node:sqlite";
 import { NextRequest, NextResponse } from "next/server";
 import { isSqliteDevelopment } from "@/lib/backend";
 import { getSqliteDatabase, LOCAL_USER_ID } from "@/lib/sqlite/database";
 import { normalizeExpenseInput, categoryNameSchema, exchangeRateSchema, orderedIdsSchema, tagIdsSchema, tagNameSchema } from "@/lib/validation";
+import { generateAmortizationSchedule } from "@/lib/amortization";
+import type { ImportedExpenseRecord } from "@/types/domain";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,10 +42,22 @@ export async function GET(request: NextRequest) {
       add("e.expense_date >= ?", request.nextUrl.searchParams.get("from")); add("e.expense_date <= ?", request.nextUrl.searchParams.get("to"));
       add("e.category_id = ?", request.nextUrl.searchParams.get("categoryId")); add("e.currency_code = ?", request.nextUrl.searchParams.get("currencyCode"));
       add("exists (select 1 from expense_tags et where et.expense_id = e.id and et.tag_id = ?)", request.nextUrl.searchParams.get("tagId"));
+      const expenseTypes = request.nextUrl.searchParams.get("expenseTypes")?.split(",").filter((type) => ["general", "prepaid", "amortized"].includes(type));
+      if (expenseTypes?.length) { where.push(`e.expense_type in (${expenseTypes.map(() => "?").join(",")})`); values.push(...expenseTypes); }
+      if (request.nextUrl.searchParams.get("includeFutureAmortized") === "false") { where.push("(e.expense_type <> 'amortized' or e.expense_date <= ?)"); values.push(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date())); }
       const query = request.nextUrl.searchParams.get("query")?.trim(); if (query) { where.push("(e.item_name like ? escape '\\' or e.note like ? escape '\\')"); const safe = `%${query.replace(/[\\%_]/g, "\\$&")}%`; values.push(safe, safe); }
       const rows = db.prepare(`select e.*, c.name as category_name, c.is_active as category_active from expenses e join categories c on c.id = e.category_id ${where.length ? `where ${where.join(" and ")}` : ""} order by e.expense_date desc, e.created_at desc`).all(...values);
       const tagQuery = db.prepare("select t.id, t.name from tags t join expense_tags et on et.tag_id=t.id where et.expense_id=? order by t.name collate nocase");
-      return NextResponse.json(rows.map((raw) => { const row = raw as Record<string, unknown>; const amount = Number(row.amount); const rate = Number(row.exchange_rate_to_twd); return { ...row, amount, exchange_rate_to_twd: rate, amount_twd: amount * rate, tags: tagQuery.all(String(row.id)), categories: { id: row.category_id, name: row.category_name, is_active: Boolean(row.category_active) }, category_name: undefined, category_active: undefined }; }));
+      return NextResponse.json(rows.map((raw) => expenseJson(raw as Record<string, unknown>, tagQuery)));
+    }
+    if (resource === "expenseFamily") {
+      const id = String(request.nextUrl.searchParams.get("id") ?? "");
+      const selected = db.prepare("select id,parent_expense_id from expenses where id=?").get(id) as { id: string; parent_expense_id: string | null } | undefined;
+      if (!selected) return NextResponse.json([]);
+      const rootId = selected.parent_expense_id ?? selected.id;
+      const rows = db.prepare("select e.*, c.name as category_name, c.is_active as category_active from expenses e join categories c on c.id=e.category_id where e.id=? or e.parent_expense_id=? order by case when e.expense_type='prepaid' then 0 else 1 end, e.amortization_sequence").all(rootId, rootId);
+      const tagQuery = db.prepare("select t.id, t.name from tags t join expense_tags et on et.tag_id=t.id where et.expense_id=? order by t.name collate nocase");
+      return NextResponse.json(rows.map((raw) => expenseJson(raw as Record<string, unknown>, tagQuery)));
     }
     return fail("未知的資料類型");
   } catch (error) { return fail(error); }
@@ -56,16 +71,32 @@ export async function POST(request: NextRequest) {
       const input = normalizeExpenseInput(body.input); const id = typeof body.id === "string" ? body.id : randomUUID();
       db.exec("begin");
       try {
-        if (body.id) db.prepare("update expenses set item_name=?, expense_date=?, amount=?, currency_code=?, category_id=?, note=?, exchange_rate_to_twd=?, updated_at=? where id=?").run(input.item_name, input.expense_date, String(input.amount), input.currency_code, input.category_id, input.note, String(input.exchange_rate_to_twd), now, id);
-        else db.prepare("insert into expenses values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, LOCAL_USER_ID, input.item_name, input.expense_date, String(input.amount), input.currency_code, input.category_id, input.note, String(input.exchange_rate_to_twd), now, now);
-        db.prepare("delete from expense_tags where expense_id=?").run(id);
         const addTag = db.prepare("insert into expense_tags (expense_id,tag_id,user_id,created_at) values (?,?,?,?)");
-        for (const tagId of input.tag_ids) addTag.run(id, tagId, LOCAL_USER_ID, now);
+        if (body.id) {
+          const existing = db.prepare("select expense_type from expenses where id=?").get(id) as { expense_type: string } | undefined;
+          if (!existing) throw new Error("找不到帳目");
+          if (existing.expense_type !== "general" || input.expense_type !== "general") throw new Error("預付與攤提帳目不可修改");
+          db.prepare("update expenses set item_name=?, expense_date=?, amount=?, currency_code=?, category_id=?, note=?, exchange_rate_to_twd=?, updated_at=? where id=?").run(input.item_name, input.expense_date, String(input.amount), input.currency_code, input.category_id, input.note, String(input.exchange_rate_to_twd), now, id);
+          db.prepare("delete from expense_tags where expense_id=?").run(id);
+          for (const tagId of input.tag_ids) addTag.run(id, tagId, LOCAL_USER_ID, now);
+        } else if (input.expense_type === "prepaid") {
+          const schedule = generateAmortizationSchedule({ amount: input.amount, startDate: input.amortization_start_date!, unit: input.amortization_unit!, periods: input.amortization_periods! });
+          db.prepare(`insert into expenses (id,user_id,item_name,expense_date,amount,currency_code,category_id,note,exchange_rate_to_twd,expense_type,parent_expense_id,amortization_unit,amortization_periods,amortization_start_date,amortization_sequence,created_at,updated_at) values (?,?,?,?,?,?,?,?,?,'prepaid',null,?,?,?,null,?,?)`).run(id, LOCAL_USER_ID, input.item_name, input.expense_date, String(input.amount), input.currency_code, input.category_id, input.note, String(input.exchange_rate_to_twd), input.amortization_unit, input.amortization_periods, input.amortization_start_date, now, now);
+          for (const tagId of input.tag_ids) addTag.run(id, tagId, LOCAL_USER_ID, now);
+          for (const installment of schedule) {
+            const childId = randomUUID();
+            db.prepare(`insert into expenses (id,user_id,item_name,expense_date,amount,currency_code,category_id,note,exchange_rate_to_twd,expense_type,parent_expense_id,amortization_unit,amortization_periods,amortization_start_date,amortization_sequence,created_at,updated_at) values (?,?,?,?,?,?,?,?,?,'amortized',?,null,null,null,?,?,?)`).run(childId, LOCAL_USER_ID, input.item_name, installment.expense_date, installment.amount_text, input.currency_code, input.category_id, input.note, String(input.exchange_rate_to_twd), id, installment.sequence, now, now);
+            for (const tagId of input.tag_ids) addTag.run(childId, tagId, LOCAL_USER_ID, now);
+          }
+        } else {
+          db.prepare(`insert into expenses (id,user_id,item_name,expense_date,amount,currency_code,category_id,note,exchange_rate_to_twd,expense_type,parent_expense_id,amortization_unit,amortization_periods,amortization_start_date,amortization_sequence,created_at,updated_at) values (?,?,?,?,?,?,?,?,?,'general',null,null,null,null,null,?,?)`).run(id, LOCAL_USER_ID, input.item_name, input.expense_date, String(input.amount), input.currency_code, input.category_id, input.note, String(input.exchange_rate_to_twd), now, now);
+          for (const tagId of input.tag_ids) addTag.run(id, tagId, LOCAL_USER_ID, now);
+        }
         db.exec("commit");
       } catch (error) { db.exec("rollback"); throw error; }
       return NextResponse.json({ id });
     }
-    if (action === "deleteExpense") { db.prepare("delete from expenses where id=?").run(String(body.id)); return NextResponse.json({ ok: true }); }
+    if (action === "deleteExpense") { const id = String(body.id); const row = db.prepare("select expense_type from expenses where id=?").get(id) as { expense_type: string } | undefined; if (row?.expense_type === "amortized") throw new Error("攤提帳目不可單獨刪除"); db.prepare("delete from expenses where id=?").run(id); return NextResponse.json({ ok: true }); }
     if (action === "saveCategory") {
       const name = categoryNameSchema.parse(body.name); const id = typeof body.id === "string" ? body.id : randomUUID();
       if (body.id) db.prepare("update categories set name=?, updated_at=? where id=?").run(name, now, id);
@@ -123,15 +154,53 @@ export async function POST(request: NextRequest) {
     if (action === "deleteFavorite") { db.prepare("delete from favorite_templates where id=?").run(String(body.id)); return NextResponse.json({ ok: true }); }
     if (action === "insertImportedExpense") {
       const input = normalizeExpenseInput(body.input); const id = String(body.id); const createdAt = String(body.createdAt); const updatedAt = String(body.updatedAt);
+      if (input.expense_type !== "general") throw new Error("關聯帳目必須使用群組匯入");
       db.exec("begin");
       try {
-        db.prepare("insert into expenses values (?,?,?,?,?,?,?,?,?,?,?)").run(id, LOCAL_USER_ID, input.item_name, input.expense_date, String(input.amount), input.currency_code, input.category_id, input.note, String(input.exchange_rate_to_twd), createdAt, updatedAt);
+        db.prepare(`insert into expenses (id,user_id,item_name,expense_date,amount,currency_code,category_id,note,exchange_rate_to_twd,expense_type,parent_expense_id,amortization_unit,amortization_periods,amortization_start_date,amortization_sequence,created_at,updated_at) values (?,?,?,?,?,?,?,?,?,'general',null,null,null,null,null,?,?)`).run(id, LOCAL_USER_ID, input.item_name, input.expense_date, String(input.amount), input.currency_code, input.category_id, input.note, String(input.exchange_rate_to_twd), createdAt, updatedAt);
         const addTag = db.prepare("insert into expense_tags (expense_id,tag_id,user_id,created_at) values (?,?,?,?)");
         for (const tagId of input.tag_ids) addTag.run(id, tagId, LOCAL_USER_ID, createdAt);
         db.exec("commit");
       } catch (error) { db.exec("rollback"); throw error; }
       return NextResponse.json({ id });
     }
+    if (action === "insertImportedExpenseGroup") {
+      const rows = body.rows as ImportedExpenseRecord[];
+      if (!Array.isArray(rows) || rows.length < 2) throw new Error("預付匯入群組不完整");
+      const parents = rows.filter((row) => row.expense_type === "prepaid");
+      if (parents.length !== 1) throw new Error("預付匯入群組必須只有一筆父帳");
+      const parent = parents[0];
+      const normalizedParent = normalizeExpenseInput({ ...parent, tag_ids: parent.tag_ids });
+      const schedule = generateAmortizationSchedule({ amount: normalizedParent.amount, startDate: normalizedParent.amortization_start_date!, unit: normalizedParent.amortization_unit!, periods: normalizedParent.amortization_periods! });
+      const children = rows.filter((row) => row.expense_type === "amortized").sort((a, b) => Number(a.amortization_sequence) - Number(b.amortization_sequence));
+      if (children.length !== schedule.length) throw new Error("攤提子帳數量與期數不一致");
+      if (rows.some((row) => db.prepare("select 1 from expenses where id=?").get(row.id))) throw new Error("匯入帳目 ID 已存在");
+      const parentTags = [...new Set(parent.tag_ids)].sort().join(",");
+      children.forEach((child, index) => {
+        const expected = schedule[index];
+        if (child.parent_expense_id !== parent.id || child.amortization_sequence !== expected.sequence || child.expense_date !== expected.expense_date || String(child.amount) !== expected.amount_text) throw new Error("攤提子帳與父帳排程不一致");
+        if (child.item_name !== parent.item_name || child.currency_code !== parent.currency_code || child.category_id !== parent.category_id || child.note !== parent.note || child.exchange_rate_to_twd !== parent.exchange_rate_to_twd) throw new Error("攤提子帳未完整繼承父帳資料");
+        if ([...new Set(child.tag_ids)].sort().join(",") !== parentTags) throw new Error("攤提子帳 Tag 與父帳不一致");
+      });
+      db.exec("begin");
+      try {
+        const insert = db.prepare(`insert into expenses (id,user_id,item_name,expense_date,amount,currency_code,category_id,note,exchange_rate_to_twd,expense_type,parent_expense_id,amortization_unit,amortization_periods,amortization_start_date,amortization_sequence,created_at,updated_at) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+        const addTag = db.prepare("insert into expense_tags (expense_id,tag_id,user_id,created_at) values (?,?,?,?)");
+        insert.run(parent.id, LOCAL_USER_ID, normalizedParent.item_name, normalizedParent.expense_date, String(normalizedParent.amount), normalizedParent.currency_code, normalizedParent.category_id, normalizedParent.note, String(normalizedParent.exchange_rate_to_twd), "prepaid", null, normalizedParent.amortization_unit, normalizedParent.amortization_periods, normalizedParent.amortization_start_date, null, parent.created_at, parent.updated_at);
+        for (const tagId of normalizedParent.tag_ids) addTag.run(parent.id, tagId, LOCAL_USER_ID, parent.created_at);
+        for (const child of children) {
+          insert.run(child.id, LOCAL_USER_ID, child.item_name, child.expense_date, String(child.amount), child.currency_code, child.category_id, child.note, String(child.exchange_rate_to_twd), "amortized", parent.id, null, null, null, child.amortization_sequence, child.created_at, child.updated_at);
+          for (const tagId of child.tag_ids) addTag.run(child.id, tagId, LOCAL_USER_ID, child.created_at);
+        }
+        db.exec("commit");
+      } catch (error) { db.exec("rollback"); throw error; }
+      return NextResponse.json({ id: parent.id });
+    }
     return fail("未知的資料操作");
   } catch (error) { return fail(error); }
+}
+
+function expenseJson(raw: Record<string, unknown>, tagQuery: StatementSync) {
+  const amount = Number(raw.amount); const rate = Number(raw.exchange_rate_to_twd);
+  return { ...raw, amount, exchange_rate_to_twd: rate, amount_twd: amount * rate, amortization_periods: raw.amortization_periods == null ? null : Number(raw.amortization_periods), amortization_sequence: raw.amortization_sequence == null ? null : Number(raw.amortization_sequence), tags: tagQuery.all(String(raw.id)), categories: { id: raw.category_id, name: raw.category_name, is_active: Boolean(raw.category_active) }, category_name: undefined, category_active: undefined };
 }

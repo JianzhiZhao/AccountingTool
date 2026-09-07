@@ -10,7 +10,7 @@ const globalSqlite = globalThis as typeof globalThis & {
 };
 
 export const LOCAL_USER_ID = "local-dev-user";
-const LOCAL_SCHEMA_VERSION = 7;
+const LOCAL_SCHEMA_VERSION = 8;
 
 export function getSqliteDatabase() {
   if (process.env.NODE_ENV !== "development") throw new Error("SQLite 僅能在開發模式使用");
@@ -50,8 +50,21 @@ export function getSqliteDatabase() {
       category_id text not null references categories(id) on delete restrict,
       note text not null,
       exchange_rate_to_twd text not null,
+      expense_type text not null default 'general' check (expense_type in ('general','prepaid','amortized')),
+      parent_expense_id text references expenses(id) on delete cascade,
+      amortization_unit text check (amortization_unit in ('month','day') or amortization_unit is null),
+      amortization_periods integer,
+      amortization_start_date text,
+      amortization_sequence integer,
       created_at text not null,
-      updated_at text not null
+      updated_at text not null,
+      check (
+        (expense_type = 'general' and parent_expense_id is null and amortization_unit is null and amortization_periods is null and amortization_start_date is null and amortization_sequence is null)
+        or (expense_type = 'prepaid' and parent_expense_id is null and amortization_unit is not null and amortization_periods is not null and amortization_start_date is not null and amortization_sequence is null)
+        or (expense_type = 'amortized' and parent_expense_id is not null and amortization_unit is null and amortization_periods is null and amortization_start_date is null and amortization_sequence is not null)
+      ),
+      check (expense_type <> 'prepaid' or cast(amount as real) = cast(cast(amount as real) as integer)),
+      check (expense_type <> 'prepaid' or amortization_periods <= cast(amount as integer))
     );
     create index if not exists expenses_date_idx on expenses(expense_date desc, created_at desc);
     create table if not exists tags (
@@ -85,6 +98,33 @@ export function getSqliteDatabase() {
       created_at text not null,
       updated_at text not null
     );
+  `);
+  const expenseColumns = database.prepare("pragma table_info(expenses)").all() as { name: string }[];
+  const addExpenseColumn = (name: string, definition: string) => {
+    if (!expenseColumns.some((column) => column.name === name)) database.exec(`alter table expenses add column ${name} ${definition}`);
+  };
+  addExpenseColumn("expense_type", "text not null default 'general' check (expense_type in ('general','prepaid','amortized'))");
+  addExpenseColumn("parent_expense_id", "text references expenses(id) on delete cascade");
+  addExpenseColumn("amortization_unit", "text check (amortization_unit in ('month','day') or amortization_unit is null)");
+  addExpenseColumn("amortization_periods", "integer");
+  addExpenseColumn("amortization_start_date", "text");
+  addExpenseColumn("amortization_sequence", "integer");
+  database.exec(`
+    create index if not exists expenses_type_date_idx on expenses(expense_type, expense_date desc);
+    create index if not exists expenses_parent_idx on expenses(parent_expense_id, amortization_sequence);
+    create unique index if not exists expenses_parent_sequence_unique on expenses(parent_expense_id, amortization_sequence) where parent_expense_id is not null;
+    create trigger if not exists expenses_related_amount_integer_insert
+    before insert on expenses
+    when new.expense_type in ('prepaid','amortized') and cast(new.amount as real) <> cast(cast(new.amount as real) as integer)
+    begin
+      select raise(abort, '預付與攤提金額必須是整數');
+    end;
+    create trigger if not exists expenses_prepaid_periods_fit_amount_insert
+    before insert on expenses
+    when new.expense_type = 'prepaid' and new.amortization_periods > cast(new.amount as integer)
+    begin
+      select raise(abort, '期數過多，會產生金額為零的攤提');
+    end;
   `);
   const currencyColumns = database.prepare("pragma table_info(enabled_currencies)").all() as { name: string }[];
   if (!currencyColumns.some((column) => column.name === "default_exchange_rate_to_twd")) {
@@ -161,6 +201,7 @@ export function getSqliteDatabase() {
   const now = new Date().toISOString();
   database.prepare("insert or ignore into enabled_currencies (user_id, code, is_active, default_exchange_rate_to_twd, created_at, updated_at) values (?, 'TWD', 1, '1', ?, ?)").run(LOCAL_USER_ID, now, now);
   database.prepare("update enabled_currencies set is_active=1, default_exchange_rate_to_twd='1' where code='TWD'").run();
+  database.exec(`pragma user_version = ${LOCAL_SCHEMA_VERSION}`);
   globalSqlite.accountingSqlite = database;
   globalSqlite.accountingSqliteSchemaVersion = LOCAL_SCHEMA_VERSION;
   return database;

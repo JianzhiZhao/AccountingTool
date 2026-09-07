@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/client";
 import { isSqliteDevelopment } from "@/lib/backend";
-import type { Category, EnabledCurrency, Expense, ExpenseFilters, ExpenseInput, FavoriteInput, FavoriteTemplate, Tag } from "@/types/domain";
+import { normalizeExpenseInput } from "@/lib/validation";
+import { todayInTaipei } from "@/lib/date";
+import type { Category, EnabledCurrency, Expense, ExpenseFilters, ExpenseInput, FavoriteInput, FavoriteTemplate, ImportedExpenseRecord, Tag } from "@/types/domain";
 
 const LOCAL_USER_ID = "local-dev-user";
 
@@ -60,7 +62,7 @@ export async function listFavorites(includeInactive = false) {
 }
 
 export async function listExpenses(filters?: Partial<ExpenseFilters>) {
-  if (isSqliteDevelopment()) return devGet<Expense[]>("expenses", { query: filters?.query, from: filters?.from, to: filters?.to, categoryId: filters?.categoryId, currencyCode: filters?.currencyCode, tagId: filters?.tagId });
+  if (isSqliteDevelopment()) return devGet<Expense[]>("expenses", { query: filters?.query, from: filters?.from, to: filters?.to, categoryId: filters?.categoryId, currencyCode: filters?.currencyCode, tagId: filters?.tagId, expenseTypes: filters?.expenseTypes?.join(","), includeFutureAmortized: filters?.includeFutureAmortized });
   const client = createClient();
   let taggedExpenseIds: string[] | null = null;
   if (filters?.tagId) {
@@ -74,6 +76,8 @@ export async function listExpenses(filters?: Partial<ExpenseFilters>) {
   if (filters?.to) query = query.lte("expense_date", filters.to);
   if (filters?.categoryId) query = query.eq("category_id", filters.categoryId);
   if (filters?.currencyCode) query = query.eq("currency_code", filters.currencyCode);
+  if (filters?.expenseTypes?.length) query = query.in("expense_type", filters.expenseTypes);
+  if (filters?.includeFutureAmortized === false) query = query.or(`expense_type.neq.amortized,expense_date.lte.${todayInTaipei()}`);
   if (taggedExpenseIds) query = query.in("id", taggedExpenseIds);
   if (filters?.query) {
     const safe = filters.query.replace(/[^\p{L}\p{N}\s_-]/gu, " ").trim();
@@ -84,10 +88,42 @@ export async function listExpenses(filters?: Partial<ExpenseFilters>) {
   return (data ?? []).map(numericExpense);
 }
 
+export async function listExpenseFamily(id: string) {
+  if (isSqliteDevelopment()) return devGet<Expense[]>("expenseFamily", { id });
+  const client = createClient();
+  const { data: selected, error: selectedError } = await client.from("expenses").select("id,parent_expense_id").eq("id", id).single();
+  if (selectedError) throw selectedError;
+  const rootId = selected.parent_expense_id ?? selected.id;
+  const { data, error } = await client.from("expenses").select("*, categories(id,name,is_active), expense_tags(tags(id,name))").or(`id.eq.${rootId},parent_expense_id.eq.${rootId}`).order("amortization_sequence", { ascending: true, nullsFirst: true });
+  if (error) throw error;
+  return (data ?? []).map(numericExpense);
+}
+
 export async function saveExpense(input: ExpenseInput, id?: string) {
-  if (isSqliteDevelopment()) { await devPost({ action: "saveExpense", input, id }); return; }
-  const client = createClient(); const uid = await userId(); const { tag_ids, ...expenseInput } = input;
-  const payload = { ...expenseInput, user_id: uid, exchange_rate_to_twd: input.currency_code === "TWD" ? 1 : input.exchange_rate_to_twd };
+  const normalized = normalizeExpenseInput(input);
+  if (isSqliteDevelopment()) { await devPost({ action: "saveExpense", input: normalized, id }); return; }
+  const client = createClient(); const uid = await userId();
+  if (!id && normalized.expense_type === "prepaid") {
+    const { error } = await client.rpc("create_prepaid_expense", {
+      p_item_name: normalized.item_name,
+      p_expense_date: normalized.expense_date,
+      p_amount: normalized.amount,
+      p_currency_code: normalized.currency_code,
+      p_category_id: normalized.category_id,
+      p_note: normalized.note,
+      p_exchange_rate_to_twd: normalized.exchange_rate_to_twd,
+      p_tag_ids: normalized.tag_ids,
+      p_amortization_unit: normalized.amortization_unit,
+      p_amortization_periods: normalized.amortization_periods,
+      p_amortization_start_date: normalized.amortization_start_date,
+    });
+    if (error) throw error;
+    return;
+  }
+  if (normalized.expense_type !== "general") throw new Error("預付與攤提帳目不可修改");
+  const { tag_ids, amortization_unit: _unit, amortization_periods: _periods, amortization_start_date: _start, ...expenseInput } = normalized;
+  void _unit; void _periods; void _start;
+  const payload = { ...expenseInput, expense_type: "general", user_id: uid, exchange_rate_to_twd: normalized.currency_code === "TWD" ? 1 : normalized.exchange_rate_to_twd };
   const { data, error } = id
     ? await client.from("expenses").update(payload).eq("id", id).select("id").single()
     : await client.from("expenses").insert(payload).select("id").single();
@@ -212,9 +248,12 @@ export async function toggleFavorite(id: string, isActive: boolean) {
 export async function currentUserId() { return userId(); }
 
 export async function insertImportedExpense(id: string, input: ExpenseInput, createdAt: string, updatedAt: string) {
-  if (isSqliteDevelopment()) { await devPost({ action: "insertImportedExpense", id, input, createdAt, updatedAt }); return; }
-  const client = createClient(); const uid = await userId(); const { tag_ids, ...expenseInput } = input;
-  const { error } = await client.from("expenses").insert({ id, user_id: uid, ...expenseInput, exchange_rate_to_twd: input.currency_code === "TWD" ? 1 : input.exchange_rate_to_twd, created_at: createdAt, updated_at: updatedAt });
+  const normalized = normalizeExpenseInput(input);
+  if (normalized.expense_type !== "general") throw new Error("關聯帳目必須使用群組匯入");
+  if (isSqliteDevelopment()) { await devPost({ action: "insertImportedExpense", id, input: normalized, createdAt, updatedAt }); return; }
+  const client = createClient(); const uid = await userId(); const { tag_ids, amortization_unit: _unit, amortization_periods: _periods, amortization_start_date: _start, ...expenseInput } = normalized;
+  void _unit; void _periods; void _start;
+  const { error } = await client.from("expenses").insert({ id, user_id: uid, ...expenseInput, exchange_rate_to_twd: normalized.currency_code === "TWD" ? 1 : normalized.exchange_rate_to_twd, created_at: createdAt, updated_at: updatedAt });
   if (error) throw error;
   if (tag_ids.length) {
     const { error: tagError } = await client.from("expense_tags").insert(tag_ids.map((tagId) => ({ expense_id: id, tag_id: tagId, user_id: uid, created_at: createdAt })));
@@ -224,7 +263,13 @@ export async function insertImportedExpense(id: string, input: ExpenseInput, cre
 
 function numericExpense(row: Record<string, unknown>): Expense {
   const links = Array.isArray(row.expense_tags) ? row.expense_tags as { tags?: { id: string; name: string } | null }[] : [];
-  return { ...row, expense_tags: undefined, tags: links.flatMap((link) => link.tags ? [link.tags] : []), amount: Number(row.amount), exchange_rate_to_twd: Number(row.exchange_rate_to_twd), amount_twd: Number(row.amount_twd) } as unknown as Expense;
+  return { ...row, expense_type: row.expense_type ?? "general", parent_expense_id: row.parent_expense_id ?? null, amortization_unit: row.amortization_unit ?? null, amortization_periods: row.amortization_periods == null ? null : Number(row.amortization_periods), amortization_start_date: row.amortization_start_date ?? null, amortization_sequence: row.amortization_sequence == null ? null : Number(row.amortization_sequence), expense_tags: undefined, tags: links.flatMap((link) => link.tags ? [link.tags] : []), amount: Number(row.amount), exchange_rate_to_twd: Number(row.exchange_rate_to_twd), amount_twd: Number(row.amount_twd) } as unknown as Expense;
+}
+
+export async function insertImportedExpenseGroup(rows: ImportedExpenseRecord[]) {
+  if (isSqliteDevelopment()) { await devPost({ action: "insertImportedExpenseGroup", rows }); return; }
+  const { error } = await createClient().rpc("import_prepaid_expense_group", { p_rows: rows });
+  if (error) throw error;
 }
 function numericFavorite(row: Record<string, unknown>): FavoriteTemplate {
   const links = Array.isArray(row.favorite_template_tags) ? row.favorite_template_tags as { tags?: { id: string; name: string } | null }[] : [];

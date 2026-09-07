@@ -8,13 +8,14 @@
 2. [事前準備](#事前準備)
 3. [建立 Supabase 專案](#建立-supabase-專案)
 4. [建立資料庫結構](#建立資料庫結構)
-5. [設定登入與私人帳號](#設定登入與私人帳號)
-6. [部署到 Vercel](#部署到-vercel)
-7. [設定 Supabase 網址](#設定-supabase-網址)
-8. [首次上線驗收](#首次上線驗收)
-9. [日後更新流程](#日後更新流程)
-10. [常見問題](#常見問題)
-11. [安全與維護建議](#安全與維護建議)
+5. [預付與攤提 migration](#預付與攤提-migration)
+6. [設定登入與私人帳號](#設定登入與私人帳號)
+7. [部署到 Vercel](#部署到-vercel)
+8. [設定 Supabase 網址](#設定-supabase-網址)
+9. [首次上線驗收](#首次上線驗收)
+10. [日後更新流程](#日後更新流程)
+11. [常見問題](#常見問題)
+12. [安全與維護建議](#安全與維護建議)
 
 ## 部署架構
 
@@ -77,14 +78,18 @@ npm run build
 
 ### 全新 Supabase 專案
 
-在 Supabase Dashboard 開啟 **SQL Editor**，依序執行下列四個檔案的完整內容：
+在 Supabase Dashboard 開啟 **SQL Editor**，依序執行下列八個檔案的完整內容：
 
 1. [`supabase/migrations/001_initial_schema.sql`](supabase/migrations/001_initial_schema.sql)
 2. [`supabase/migrations/002_expense_tags.sql`](supabase/migrations/002_expense_tags.sql)
 3. [`supabase/migrations/003_favorite_template_tags.sql`](supabase/migrations/003_favorite_template_tags.sql)
 4. [`supabase/migrations/004_currency_default_exchange_rates.sql`](supabase/migrations/004_currency_default_exchange_rates.sql)
+5. [`supabase/migrations/005_category_tag_sort_order.sql`](supabase/migrations/005_category_tag_sort_order.sql)
+6. [`supabase/migrations/006_tag_active_state.sql`](supabase/migrations/006_tag_active_state.sql)
+7. [`supabase/migrations/007_favorite_active_state.sql`](supabase/migrations/007_favorite_active_state.sql)
+8. [`supabase/migrations/008_prepaid_amortized_expenses.sql`](supabase/migrations/008_prepaid_amortized_expenses.sql)
 
-每次只執行一個檔案，確認成功後再執行下一個。順序不能顛倒：`002` 依賴 `001` 的帳目資料表，`003` 又依賴前兩次建立的常用項目與 Tag 資料表，`004` 會在已啟用幣別加入預設匯率。
+每次只執行一個檔案，確認成功後再執行下一個。順序不能顛倒：`002` 至 `004` 建立 Tag 與預設匯率，`005` 至 `007` 建立排序與啟用狀態，`008` 建立預付與攤提的關聯及保護規則。
 
 ### 已經使用中的 Supabase 專案
 
@@ -104,6 +109,29 @@ npm run build
 - `favorite_template_tags`
 
 Migration 也會建立 RLS policy、外鍵、索引與新使用者初始化 trigger。不要為了排錯而關閉 RLS。
+
+## 預付與攤提 migration
+
+已使用本系統並已套用 `001` 至 `007` 的正式專案，只應執行一次 `008_prepaid_amortized_expenses.sql`。這個 migration 是交易式的：任何步驟失敗都會回復本次 schema 變更；但成功後產生的新預付資料不應以手動刪欄方式回復。
+
+執行前：
+
+1. 在 Supabase Dashboard 建立資料庫備份，並另外匯出一份現有帳目的 CSV。
+2. 以 SQL Editor 確認舊資料可安全轉為一般帳目：`select count(*) from public.expenses;`。migration 不會修改既有列的付款日期、金額、分類、Tag 或匯率。
+3. 暫時不要部署依賴新欄位的網站版本，也不要讓其他人同時修改帳目。
+
+執行時，將 [`008_prepaid_amortized_expenses.sql`](supabase/migrations/008_prepaid_amortized_expenses.sql) 的完整內容貼到 SQL Editor 後一次執行。成功後先確認：
+
+```sql
+select expense_type, count(*) from public.expenses group by expense_type;
+select column_name from information_schema.columns
+where table_schema = 'public' and table_name = 'expenses'
+  and column_name in ('expense_type', 'parent_expense_id', 'amortization_unit', 'amortization_periods', 'amortization_start_date', 'amortization_sequence');
+```
+
+第一個查詢在既有資料庫應只顯示 `general`，且總筆數必須與執行前相同。接著以正式帳號登入網站，建立一筆測試預付、查看父子關聯，再刪除它，確認攤提子帳也一併移除。
+
+若 migration 執行失敗，SQL Editor 會因 transaction 回復本次變更；保留錯誤訊息並停止部署。若 migration 已成功且已有新資料，請使用執行前的資料庫備份復原，而不是手動刪除欄位或關聯，避免遺失已建立的預付帳目。
 
 ## 設定登入與私人帳號
 
@@ -209,9 +237,12 @@ Vercel Preview 每次可能產生不同網址。若需要測試 Preview 的密�
 5. 啟用另一個幣別並新增一筆外幣帳目，確認換算金額正常。
 6. 建立 Tag，並套用到帳目與常用項目。
 7. 檢查帳目篩選與統計頁。
-8. 登出後確認無法存取私人帳目。
-9. 測試「忘記密碼」，確認郵件連結會回到正式網站的 `/update-password`。
-10. 在 Supabase Table Editor 確認資料的 `user_id` 是登入帳號的 UUID。
+8. 建立一筆月攤提預付，確認可以查看父子關聯、未到期攤提預設不顯示、預付與攤提不能單筆編輯、且刪除預付會一併刪除子帳。
+9. 確認統計頁分別顯示現金流、費用認列、差異與期末預付餘額。
+10. 匯出包含預付的 CSV，確認匯出資料包含完整預付家族。
+11. 登出後確認無法存取私人帳目。
+12. 測試「忘記密碼」，確認郵件連結會回到正式網站的 `/update-password`。
+13. 在 Supabase Table Editor 確認資料的 `user_id` 是登入帳號的 UUID。
 
 ## 日後更新流程
 
@@ -308,13 +339,13 @@ Supabase 的 anon／publishable key 本來就會提供給瀏覽器使用，真�
 
 ```text
 [ ] Supabase 專案已建立
-[ ] 已依序執行 001、002、003、004 migration
+[ ] 已依序執行 001 至 008 migration
 [ ] 私人 Email／密碼帳號已建立
 [ ] 公開註冊已關閉
 [ ] Vercel 三個環境變數已設定
 [ ] Vercel Production deployment 顯示 Ready
 [ ] Supabase Site URL 已指向正式網站
 [ ] /update-password 已加入 Redirect URLs
-[ ] 登入、新增分類、記帳、Tag、統計均已驗證
+[ ] 登入、新增分類、一般帳目、預付攤提、Tag、統計、CSV 均已驗證
 [ ] 已完成一次 CSV 備份
 ```

@@ -1,3 +1,5 @@
+import type { ExpenseType } from "@/types/domain";
+
 export const ISO_CURRENCIES = [
   ["TWD", "新台幣"], ["USD", "美元"], ["JPY", "日圓"], ["CNY", "人民幣"],
   ["EUR", "歐元"], ["GBP", "英鎊"], ["HKD", "港幣"], ["KRW", "韓元"],
@@ -7,4 +9,4 @@ export const ISO_CURRENCIES = [
 
 export const CURRENCY_NAMES = Object.fromEntries(ISO_CURRENCIES) as Record<string, string>;
 
-export const EMPTY_FILTERS = { query: "", from: "", to: "", categoryId: "", currencyCode: "", tagId: "" };
+export const EMPTY_FILTERS = { query: "", from: "", to: "", categoryId: "", currencyCode: "", tagId: "", expenseTypes: ["general", "prepaid", "amortized"] as ExpenseType[], includeFutureAmortized: false };

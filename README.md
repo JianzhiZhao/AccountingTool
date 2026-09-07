@@ -24,7 +24,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 ## Supabase 正式模式
 
 1. 在 Supabase 建立免費專案。
-2. 於 Supabase SQL Editor 依序執行 `001_initial_schema.sql`、`002_expense_tags.sql`、`003_favorite_template_tags.sql`、`004_currency_default_exchange_rates.sql`。
+2. 於 Supabase SQL Editor 依檔名順序執行 `001` 至 `008` migration；預付與攤提功能位於 `008_prepaid_amortized_expenses.sql`。
 3. 依下方步驟建立私人帳號並關閉公開註冊。
 
 正式建置與 Vercel 部署固定使用 Supabase；SQLite API 在非開發環境會直接停用。
@@ -47,7 +47,9 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 
 ## CSV 規則
 
-- 僅接受本站匯出的 `private-accounting-tool-v1` 格式。
+- 匯出使用 `private-accounting-tool-v3` 格式；預付帳目會自動連同所有攤提子帳目匯出，避免備份不完整。
+- 匯入仍相容本站的 v1、v2 備份，並會將其帳目視為一般帳目。
+- v3 預付資料必須包含完整且正確的父子排程；群組中已有部分帳目時，整個群組不會匯入，避免破壞關聯。
 - 匯入前會預覽有效、重複與錯誤列；相同帳目 ID 永遠跳過，不覆寫既有資料。
 - 缺少的分類會自動建立，檔案使用的支援幣別會自動啟用。
 - 匯出內容依帳目頁目前的篩選結果產生。

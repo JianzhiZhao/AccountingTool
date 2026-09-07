@@ -27,6 +27,9 @@ export type Tag = {
   updated_at: string;
 };
 
+export type ExpenseType = "general" | "prepaid" | "amortized";
+export type AmortizationUnit = "month" | "day";
+
 export type Expense = {
   id: string;
   user_id: string;
@@ -38,6 +41,12 @@ export type Expense = {
   note: string;
   exchange_rate_to_twd: number;
   amount_twd: number;
+  expense_type: ExpenseType;
+  parent_expense_id: string | null;
+  amortization_unit: AmortizationUnit | null;
+  amortization_periods: number | null;
+  amortization_start_date: string | null;
+  amortization_sequence: number | null;
   created_at: string;
   updated_at: string;
   categories?: Pick<Category, "id" | "name" | "is_active"> | null;
@@ -89,6 +98,30 @@ export type ExpenseInput = {
   note: string;
   exchange_rate_to_twd: number;
   tag_ids: string[];
+  expense_type?: "general" | "prepaid";
+  amortization_unit?: AmortizationUnit | null;
+  amortization_periods?: number | null;
+  amortization_start_date?: string | null;
+};
+
+export type ImportedExpenseRecord = {
+  id: string;
+  item_name: string;
+  expense_date: string;
+  amount: number;
+  currency_code: string;
+  category_id: string;
+  note: string;
+  exchange_rate_to_twd: number;
+  expense_type: ExpenseType;
+  parent_expense_id: string | null;
+  amortization_unit: AmortizationUnit | null;
+  amortization_periods: number | null;
+  amortization_start_date: string | null;
+  amortization_sequence: number | null;
+  tag_ids: string[];
+  created_at: string;
+  updated_at: string;
 };
 
 export type ExpenseFilters = {
@@ -98,4 +131,6 @@ export type ExpenseFilters = {
   categoryId: string;
   currencyCode: string;
   tagId: string;
+  expenseTypes: ExpenseType[];
+  includeFutureAmortized: boolean;
 };
