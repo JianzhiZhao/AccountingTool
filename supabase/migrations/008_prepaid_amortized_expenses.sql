@@ -9,7 +9,6 @@ alter table public.expenses
   add column amortization_sequence integer;
 
 alter table public.expenses
-  add constraint expenses_id_user_unique unique (id, user_id),
   add constraint expenses_type_check check (expense_type in ('general', 'prepaid', 'amortized')),
   add constraint expenses_amortization_unit_check check (amortization_unit in ('month', 'day') or amortization_unit is null),
   add constraint expenses_amortization_shape_check check (
