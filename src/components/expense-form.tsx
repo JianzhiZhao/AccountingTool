@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, Hash, Heart, LoaderCircle, Save } from "lucide-react";
-import { listCategories, listCurrencies, listFavorites, listTags, saveExpense } from "@/lib/data";
 import { generateAmortizationSchedule } from "@/lib/amortization";
+import { saveExpense } from "@/lib/data";
+import { ExpenseSettingsError, loadExpenseSettings } from "@/lib/expense-settings";
 import { todayInTaipei } from "@/lib/date";
 import { normalizeExpenseInput } from "@/lib/validation";
 import type { Category, EnabledCurrency, Expense, ExpenseInput, FavoriteTemplate, Tag } from "@/types/domain";
@@ -22,16 +23,61 @@ export function ExpenseForm({ initialExpense, onSaved }: { initialExpense?: Expe
   const [categories, setCategories] = useState<Category[]>([]); const [currencies, setCurrencies] = useState<EnabledCurrency[]>([]); const [favorites, setFavorites] = useState<FavoriteTemplate[]>([]); const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [message, setMessage] = useState(""); const [error, setError] = useState("");
 
-  useEffect(() => { Promise.all([listCategories(Boolean(initialExpense)), listCurrencies(Boolean(initialExpense)), listFavorites(false), listTags(Boolean(initialExpense))]).then(([allCategories, allCurrencies, favoriteRows, allTags]) => {
-    const activeCategories = initialExpense ? allCategories.filter((item) => item.is_active || item.id === initialExpense.category_id) : allCategories;
-    const activeCurrencies = initialExpense ? allCurrencies.filter((item) => item.is_active || item.code === initialExpense.currency_code) : allCurrencies;
-    const assignedTagIds = new Set(initialExpense?.tags?.map((tag) => tag.id) ?? []);
-    const visibleTags = initialExpense ? allTags.filter((tag) => tag.is_active || assignedTagIds.has(tag.id)) : allTags;
-    setCategories(activeCategories); setCurrencies(activeCurrencies); setFavorites(favoriteRows); setTags(visibleTags);
-    if (!initialExpense && activeCategories.length) setForm((old) => ({ ...old, category_id: old.category_id || activeCategories[0].id }));
-    const requested = !initialExpense ? sessionStorage.getItem("favoriteToLoad") : null; const favorite = favoriteRows.find((item) => item.id === requested);
-    if (favorite) { const visibleTagIds = new Set(visibleTags.map((tag) => tag.id)); setForm((old) => favoriteForm(old, { ...favorite, tags: favorite.tags?.filter((tag) => visibleTagIds.has(tag.id)) })); setMessage(`已載入「${favorite.item_name}」，確認後即可儲存。`); sessionStorage.removeItem("favoriteToLoad"); }
-  }).catch(() => setError("無法載入記帳設定，請重新整理。")).finally(() => setLoading(false)); }, [initialExpense]);
+  const [loadError, setLoadError] = useState("");
+  const [requiresLogin, setRequiresLogin] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    async function loadSettings() {
+      try {
+        const [allCategories, allCurrencies, f, allTags] = await loadExpenseSettings(Boolean(initialExpense), controller.signal);
+        if (cancelled) return;
+        const c = initialExpense ? allCategories.filter((item) => item.is_active || item.id === initialExpense.category_id) : allCategories;
+        const u = initialExpense ? allCurrencies.filter((item) => item.is_active || item.code === initialExpense.currency_code) : allCurrencies;
+        const assignedTagIds = new Set(initialExpense?.tags?.map((tag) => tag.id) ?? []);
+        const visibleTags = initialExpense ? allTags.filter((tag) => tag.is_active || assignedTagIds.has(tag.id)) : allTags;
+        setCategories(c); setCurrencies(u); setFavorites(f); setTags(visibleTags);
+        if (!initialExpense && c.length) setForm((old) => ({ ...old, category_id: old.category_id || c[0].id }));
+        const requested = !initialExpense ? sessionStorage.getItem("favoriteToLoad") : null;
+        const favorite = f.find((item) => item.id === requested);
+        if (favorite) {
+          const visibleTagIds = new Set(visibleTags.map((tag) => tag.id));
+          setForm((old) => favoriteForm(old, { ...favorite, tags: favorite.tags?.filter((tag) => visibleTagIds.has(tag.id)) }));
+          setMessage(`已載入「${favorite.item_name}」，確認後即可儲存。`);
+          sessionStorage.removeItem("favoriteToLoad");
+        }
+      } catch (cause) {
+        if (!cancelled) {
+          setRequiresLogin(cause instanceof ExpenseSettingsError && cause.requiresLogin);
+          setLoadError(cause instanceof ExpenseSettingsError ? cause.message : "無法載入記帳設定，請重新載入。");
+        }
+      } finally {
+        controller.abort();
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void loadSettings();
+    return () => { cancelled = true; controller.abort(); };
+  }, [initialExpense, loadAttempt]);
+
+  const retryLoad = useCallback(() => {
+    setLoading(true);
+    setLoadError("");
+    setLoadAttempt((attempt) => attempt + 1);
+  }, []);
+
+  useEffect(() => {
+    if (!loadError || requiresLogin) return;
+    const resume = () => { if (document.visibilityState === "visible") retryLoad(); };
+    window.addEventListener("online", retryLoad);
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      window.removeEventListener("online", retryLoad);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, [loadError, requiresLogin, retryLoad]);
 
   const selectedFavorite = useMemo(() => favorites.find((favorite) => favorite.item_name === form.item_name && favorite.category_id === form.category_id), [favorites, form.item_name, form.category_id]);
   const schedule = useMemo(() => {
@@ -55,7 +101,8 @@ export function ExpenseForm({ initialExpense, onSaved }: { initialExpense?: Expe
     finally { setSaving(false); }
   }
 
-  if (loading) return <div className="card flex min-h-48 items-center justify-center"><LoaderCircle className="animate-spin text-moss-600" /></div>;
+  if (loading) return <div className="card flex min-h-48 items-center justify-center" role="status" aria-label="正在載入記帳設定"><LoaderCircle className="animate-spin text-moss-600" /></div>;
+  if (loadError) return <div className="card text-center"><p role="alert" className="text-sm text-red-700">{loadError}</p>{requiresLogin ? <Link className="btn-primary mt-4" href="/login">重新登入</Link> : <button type="button" className="btn-primary mt-4" onClick={retryLoad}>重新載入</button>}</div>;
   if (!categories.length) return <div className="card text-center"><div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-moss-100 text-moss-700"><Heart /></div><h2 className="text-xl font-bold">先建立第一個分類</h2><p className="mx-auto mt-2 max-w-sm text-stone-500">分類是每筆帳目的必填資料。建立完成後，就能開始記帳。</p><Link className="btn-primary mt-6" href="/app/settings">前往建立分類</Link></div>;
 
   return <div className="space-y-5">

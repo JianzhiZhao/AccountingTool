@@ -3,6 +3,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ExpenseForm } from "../expense-form";
+import { listCategories, listCurrencies } from "@/lib/data";
+
+vi.mock("@/lib/backend", () => ({ isSqliteDevelopment: () => true }));
 
 const { categoryId, listFavorites, listTags, saveExpense } = vi.hoisted(() => ({
   categoryId: "11111111-1111-4111-8111-111111111111",
@@ -48,7 +51,51 @@ vi.mock("@/lib/data", () => ({
 
 describe("ExpenseForm", () => {
   afterEach(cleanup);
-  beforeEach(() => { saveExpense.mockClear(); listFavorites.mockClear(); listTags.mockClear(); });
+  beforeEach(() => { vi.clearAllMocks(); sessionStorage.clear(); });
+
+  it.each([
+    ["categories", listCategories], ["currencies", listCurrencies],
+    ["favorites", listFavorites], ["tags", listTags],
+  ])("shows a retryable error when %s fails, rather than claiming categories are missing", async (_name, request) => {
+    vi.mocked(request).mockRejectedValueOnce({ code: "42501", message: "Permission denied" });
+    render(<ExpenseForm />);
+
+    expect((await screen.findByRole("alert")).textContent).toContain("無法載入記帳設定");
+    expect(screen.queryByText("先建立第一個分類")).toBeNull();
+    expect(screen.queryByRole("button", { name: "完成記帳" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "重新載入" }));
+    expect(screen.getByRole("status")).toBeTruthy();
+    expect(await screen.findByRole("option", { name: "交通" })).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows category setup only after a successful empty response", async () => {
+    vi.mocked(listCategories).mockResolvedValueOnce([]);
+    render(<ExpenseForm />);
+
+    expect(await screen.findByText("先建立第一個分類")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("reloads failed settings when the network comes back online", async () => {
+    vi.mocked(listCategories).mockRejectedValueOnce({ code: "42501" });
+    render(<ExpenseForm />);
+    await screen.findByRole("alert");
+    fireEvent(window, new Event("online"));
+    expect(await screen.findByRole("option", { name: "交通" })).toBeTruthy();
+  });
+
+  it("does not show category setup while settings are still loading", async () => {
+    let finish!: (tags: []) => void;
+    listTags.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    render(<ExpenseForm />);
+
+    expect(screen.getByRole("status")).toBeTruthy();
+    expect(screen.queryByText("先建立第一個分類")).toBeNull();
+    finish([]);
+    expect(await screen.findByRole("option", { name: "交通" })).toBeTruthy();
+  });
 
   it("hides inactive tags when creating a new expense", async () => {
     render(<ExpenseForm />);

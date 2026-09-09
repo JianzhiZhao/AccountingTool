@@ -24,4 +24,6 @@ export async function proxy(request: NextRequest) {
   return response;
 }
 
-export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"] };
+// Refresh sessions only on account pages. The root redirect and generated icons
+// do not need an Auth request before they can return a response.
+export const config = { matcher: ["/app/:path*", "/login", "/forgot-password", "/update-password"] };
