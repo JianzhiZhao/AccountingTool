@@ -110,6 +110,35 @@ vi.mock("../expense-form", () => ({ ExpenseForm: () => null }));
 
 describe("ExpensesManager", () => {
   afterEach(cleanup);
+  it("paginates by 20 by default and resets to the first page when switching to 50", async () => {
+    const rows = Array.from({ length: 51 }, (_, index) => ({ ...expenses[0], id: `row-${index}`, item_name: `帳目 ${index + 1}` }));
+    listExpenses.mockResolvedValueOnce(rows);
+    render(<ExpensesManager />);
+    await screen.findByText("帳目 1");
+
+    expect((screen.getByLabelText("每頁顯示筆數") as HTMLSelectElement).value).toBe("20");
+    expect(screen.getAllByRole("article")).toHaveLength(20);
+    expect(screen.queryByText("帳目 21")).toBeNull();
+    expect((screen.getByRole("button", { name: "上一頁" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "下一頁" }));
+    expect(screen.getByText("帳目 21")).toBeTruthy();
+    expect(screen.queryByText("帳目 1")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("每頁顯示筆數"), { target: { value: "50" } });
+    expect(screen.getAllByRole("article")).toHaveLength(50);
+    expect(screen.getByText("帳目 1")).toBeTruthy();
+    expect(screen.queryByText("帳目 51")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "下一頁" }));
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+    expect(screen.getByText("帳目 51")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "下一頁" }) as HTMLButtonElement).disabled).toBe(true);
+
+    listExpenses.mockResolvedValueOnce(rows);
+    fireEvent.click(screen.getByRole("button", { name: /套用篩選/ }));
+    await screen.findByText("帳目 1");
+    expect(screen.getAllByRole("article")).toHaveLength(50);
+  });
+
   it("shows TWD on the right and only labels converted foreign-currency expenses", async () => {
     render(<ExpensesManager />);
 

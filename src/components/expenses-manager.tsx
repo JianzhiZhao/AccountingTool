@@ -16,6 +16,8 @@ const typeLabels: Record<ExpenseType, string> = { general: "一般", prepaid: "�
 const typeStyles: Record<ExpenseType, string> = { general: "bg-stone-100 text-stone-600", prepaid: "bg-amber-100 text-amber-800", amortized: "bg-moss-100 text-moss-800" };
 
 export function ExpensesManager() {
+  const [pageSize, setPageSize] = useState(20);
+  const [page, setPage] = useState(1);
   const emptyFilters = (): ExpenseFilters => ({ ...EMPTY_FILTERS, expenseTypes: [...EMPTY_FILTERS.expenseTypes] });
   const [filters, setFilters] = useState<ExpenseFilters>(emptyFilters); const [applied, setApplied] = useState<ExpenseFilters>(emptyFilters);
   const [expenses, setExpenses] = useState<Expense[]>([]); const [categories, setCategories] = useState<Category[]>([]); const [currencies, setCurrencies] = useState<EnabledCurrency[]>([]); const [tags, setTags] = useState<Tag[]>([]);
@@ -36,9 +38,14 @@ export function ExpensesManager() {
   }, [applied]);
   async function remove(expense: Expense) { const detail = expense.expense_type === "prepaid" ? `並一併刪除 ${expense.amortization_periods ?? 0} 筆攤提` : ""; if (!window.confirm(`確定永久刪除「${expense.item_name}」${detail}？此動作無法復原。`)) return; try { await deleteExpense(expense.id); setMessage(expense.expense_type === "prepaid" ? "預付及其攤提已永久刪除。" : "帳目已永久刪除。"); await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : "刪除失敗，請稍後再試。"); } }
   async function openFamily(expense: Expense) { setError(""); try { setFamily(await listExpenseFamily(expense.id)); } catch { setError("無法載入預付與攤提明細。"); } }
-  function apply(event: React.FormEvent) { event.preventDefault(); if (!filters.expenseTypes.length) { setError("請至少選擇一種帳目類型。"); return; } setError(""); setLoading(true); setApplied({ ...filters, expenseTypes: [...filters.expenseTypes] }); }
-  function clear() { const empty = emptyFilters(); setFilters(empty); setError(""); setLoading(true); setApplied(empty); }
+  function apply(event: React.FormEvent) { event.preventDefault(); if (!filters.expenseTypes.length) { setError("請至少選擇一種帳目類型。"); return; } setPage(1); setError(""); setLoading(true); setApplied({ ...filters, expenseTypes: [...filters.expenseTypes] }); }
+  function clear() { const empty = emptyFilters(); setPage(1); setFilters(empty); setError(""); setLoading(true); setApplied(empty); }
   function toggleType(type: ExpenseType) { setFilters((current) => ({ ...current, expenseTypes: current.expenseTypes.includes(type) ? current.expenseTypes.filter((item) => item !== type) : [...current.expenseTypes, type] })); }
+
+  const totalPages = Math.max(1, Math.ceil(expenses.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * pageSize;
+  const visibleExpenses = expenses.slice(pageStart, pageStart + pageSize);
 
   return <div className="space-y-5">
     <form onSubmit={apply} className="card grid gap-3 md:grid-cols-7">
@@ -53,8 +60,9 @@ export function ExpensesManager() {
     </form>
     <StatusMessage message={error || message} error={Boolean(error)} />
     <section className="card overflow-hidden p-0">
-      <div className="flex items-center justify-between border-b border-stone-100 px-5 py-4"><h2 className="font-semibold">共 {expenses.length} 筆</h2><span className="text-xs text-stone-400">新到舊排列</span></div>
-      {loading ? <div className="flex min-h-48 items-center justify-center"><LoaderCircle className="animate-spin text-moss-600" /></div> : expenses.length === 0 ? <div className="px-5 py-16 text-center text-stone-400">找不到符合條件的帳目</div> : <div className="divide-y divide-stone-100">{expenses.map((expense) => <ExpenseRow key={expense.id} expense={expense} onEdit={() => setEditing(expense)} onRemove={() => remove(expense)} onFamily={() => openFamily(expense)} />)}</div>}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 px-5 py-4"><h2 className="font-semibold">共 {expenses.length} 筆</h2><div className="flex flex-wrap items-center gap-3"><span className="text-xs text-stone-400">新到舊排列</span><select aria-label="每頁顯示筆數" className="field w-auto" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}><option value={20}>每頁顯示 20 筆</option><option value={50}>每頁顯示 50 筆</option></select></div></div>
+      {loading ? <div className="flex min-h-48 items-center justify-center"><LoaderCircle className="animate-spin text-moss-600" /></div> : expenses.length === 0 ? <div className="px-5 py-16 text-center text-stone-400">找不到符合條件的帳目</div> : <div className="divide-y divide-stone-100">{visibleExpenses.map((expense) => <ExpenseRow key={expense.id} expense={expense} onEdit={() => setEditing(expense)} onRemove={() => remove(expense)} onFamily={() => openFamily(expense)} />)}</div>}
+      {!loading && expenses.length > 0 && <nav aria-label="帳目分頁" className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 px-5 py-4"><p className="text-sm text-stone-500" aria-live="polite">顯示第 {pageStart + 1}–{Math.min(pageStart + pageSize, expenses.length)} 筆，共 {expenses.length} 筆</p><div className="flex items-center gap-3"><button type="button" className="btn-secondary" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>上一頁</button><span className="text-sm text-stone-500">第 {currentPage} / {totalPages} 頁</span><button type="button" className="btn-secondary" disabled={currentPage === totalPages} onClick={() => setPage(currentPage + 1)}>下一頁</button></div></nav>}
     </section>
     {editing && <Modal onClose={() => setEditing(null)}><ExpenseForm initialExpense={editing} onSaved={() => { setEditing(null); void load(); }} /></Modal>}
     {family && <Modal onClose={() => setFamily(null)}><FamilyDetails family={family} /></Modal>}
