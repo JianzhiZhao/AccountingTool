@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download, Eye, Filter, LoaderCircle, Pencil, Search, Trash2, Upload, X } from "lucide-react";
 import { deleteExpense, listCategories, listCurrencies, listExpenseFamily, listExpenses, listTags } from "@/lib/data";
 import { generateAmortizationSchedule } from "@/lib/amortization";
@@ -18,6 +18,17 @@ const typeStyles: Record<ExpenseType, string> = { general: "bg-stone-100 text-st
 export function ExpensesManager() {
   const [pageSize, setPageSize] = useState(20);
   const [page, setPage] = useState(1);
+  const listRef = useRef<HTMLDivElement>(null);
+  const scrollAfterPageChange = useRef(false);
+  function changePage(nextPage: number) {
+    scrollAfterPageChange.current = true;
+    setPage(nextPage);
+  }
+  useEffect(() => {
+    if (!scrollAfterPageChange.current) return;
+    scrollAfterPageChange.current = false;
+    listRef.current?.scrollIntoView({ behavior: "instant", block: "start" });
+  }, [page]);
   const emptyFilters = (): ExpenseFilters => ({ ...EMPTY_FILTERS, expenseTypes: [...EMPTY_FILTERS.expenseTypes] });
   const [filters, setFilters] = useState<ExpenseFilters>(emptyFilters); const [applied, setApplied] = useState<ExpenseFilters>(emptyFilters);
   const [expenses, setExpenses] = useState<Expense[]>([]); const [categories, setCategories] = useState<Category[]>([]); const [currencies, setCurrencies] = useState<EnabledCurrency[]>([]); const [tags, setTags] = useState<Tag[]>([]);
@@ -61,8 +72,8 @@ export function ExpensesManager() {
     <StatusMessage message={error || message} error={Boolean(error)} />
     <section className="card overflow-hidden p-0">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 px-5 py-4"><h2 className="font-semibold">共 {expenses.length} 筆</h2><div className="flex flex-wrap items-center gap-3"><span className="text-xs text-stone-400">新到舊排列</span><select aria-label="每頁顯示筆數" className="field w-auto" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}><option value={20}>每頁顯示 20 筆</option><option value={50}>每頁顯示 50 筆</option></select></div></div>
-      {loading ? <div className="flex min-h-48 items-center justify-center"><LoaderCircle className="animate-spin text-moss-600" /></div> : expenses.length === 0 ? <div className="px-5 py-16 text-center text-stone-400">找不到符合條件的帳目</div> : <div className="divide-y divide-stone-100">{visibleExpenses.map((expense) => <ExpenseRow key={expense.id} expense={expense} onEdit={() => setEditing(expense)} onRemove={() => remove(expense)} onFamily={() => openFamily(expense)} />)}</div>}
-      {!loading && expenses.length > 0 && <nav aria-label="帳目分頁" className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 px-5 py-4"><p className="text-sm text-stone-500" aria-live="polite">顯示第 {pageStart + 1}–{Math.min(pageStart + pageSize, expenses.length)} 筆，共 {expenses.length} 筆</p><div className="flex items-center gap-3"><button type="button" className="btn-secondary" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>上一頁</button><span className="text-sm text-stone-500">第 {currentPage} / {totalPages} 頁</span><button type="button" className="btn-secondary" disabled={currentPage === totalPages} onClick={() => setPage(currentPage + 1)}>下一頁</button></div></nav>}
+      {loading ? <div className="flex min-h-48 items-center justify-center"><LoaderCircle className="animate-spin text-moss-600" /></div> : expenses.length === 0 ? <div className="px-5 py-16 text-center text-stone-400">找不到符合條件的帳目</div> : <div ref={listRef} className="scroll-mt-4 divide-y divide-stone-100">{visibleExpenses.map((expense) => <ExpenseRow key={expense.id} expense={expense} onEdit={() => setEditing(expense)} onRemove={() => remove(expense)} onFamily={() => openFamily(expense)} />)}</div>}
+      {!loading && expenses.length > 0 && <nav aria-label="帳目分頁" className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 px-5 py-4"><p className="text-sm text-stone-500" aria-live="polite">顯示第 {pageStart + 1}–{Math.min(pageStart + pageSize, expenses.length)} 筆，共 {expenses.length} 筆</p><div className="flex items-center gap-3"><button type="button" className="btn-secondary" disabled={currentPage === 1} onClick={() => changePage(currentPage - 1)}>上一頁</button><span className="text-sm text-stone-500">第 {currentPage} / {totalPages} 頁</span><button type="button" className="btn-secondary" disabled={currentPage === totalPages} onClick={() => changePage(currentPage + 1)}>下一頁</button></div></nav>}
     </section>
     {editing && <Modal onClose={() => setEditing(null)}><ExpenseForm initialExpense={editing} onSaved={() => { setEditing(null); void load(); }} /></Modal>}
     {family && <Modal onClose={() => setFamily(null)}><FamilyDetails family={family} /></Modal>}

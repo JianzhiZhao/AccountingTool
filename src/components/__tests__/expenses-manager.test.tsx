@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { formatMoney } from "@/lib/analytics";
 import { ExpensesManager } from "../expenses-manager";
 
@@ -109,7 +109,17 @@ vi.mock("../csv-tools", () => ({ CsvTools: () => null }));
 vi.mock("../expense-form", () => ({ ExpenseForm: () => null }));
 
 describe("ExpensesManager", () => {
-  afterEach(cleanup);
+  const scrollIntoView = vi.fn();
+  beforeEach(() => {
+    scrollIntoView.mockClear();
+    vi.stubGlobal("HTMLElement", HTMLElement);
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+  });
+  afterEach(() => {
+    cleanup();
+    delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+    vi.unstubAllGlobals();
+  });
   it("paginates by 20 by default and resets to the first page when switching to 50", async () => {
     const rows = Array.from({ length: 51 }, (_, index) => ({ ...expenses[0], id: `row-${index}`, item_name: `帳目 ${index + 1}` }));
     listExpenses.mockResolvedValueOnce(rows);
@@ -120,9 +130,16 @@ describe("ExpensesManager", () => {
     expect(screen.getAllByRole("article")).toHaveLength(20);
     expect(screen.queryByText("帳目 21")).toBeNull();
     expect((screen.getByRole("button", { name: "上一頁" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(scrollIntoView).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "下一頁" }));
     expect(screen.getByText("帳目 21")).toBeTruthy();
     expect(screen.queryByText("帳目 1")).toBeNull();
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "instant", block: "start" });
+    expect(scrollIntoView.mock.contexts[0]).toBe(screen.getAllByRole("article")[0].parentElement);
+
+    fireEvent.click(screen.getByRole("button", { name: "上一頁" }));
+    expect(screen.getByText("帳目 1")).toBeTruthy();
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
 
     fireEvent.change(screen.getByLabelText("每頁顯示筆數"), { target: { value: "50" } });
     expect(screen.getAllByRole("article")).toHaveLength(50);
