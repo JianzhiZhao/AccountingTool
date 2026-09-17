@@ -45,6 +45,34 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 3. 部署完成後，將正式網址加入 Supabase 的 Site URL 與 Redirect URLs。
 4. 執行 `npm run build`、`npm test` 與 `npm run typecheck` 作為部署前檢查。
 
+## 錯誤紀錄與排查（Vercel）
+
+「記一筆」載入登入狀態、分類、幣別、常用項目或 Tag 最終失敗時，網站會將精簡錯誤資訊上報到 Vercel Runtime Logs。暫時性錯誤最多嘗試 3 次，重試成功不會上報。目前這套上報只涵蓋記帳設定載入，不代表所有網站錯誤都會自動記錄。
+
+日後遇到載入錯誤，請盡快依下列步驟查找：
+
+1. 登入 [Vercel Dashboard](https://vercel.com/dashboard)，開啟 `accounting-tool` 專案。
+2. 進入 **Logs**，選擇 **Production** 和問題發生的時間範圍。
+3. 搜尋 `expense_settings_load_failed`，也可篩選路徑 `/api/client-errors` 與 **Warning** 等級。
+4. 展開紀錄中的 **Log Messages**，查看以下欄位，並搭配部署版本、Request ID 與發生時間排查。Vercel 文件標示日誌時間為 UTC，與台灣時間相差 8 小時。
+
+| 欄位 | 說明 |
+| --- | --- |
+| `resource` | 失敗項目：`session`、`categories`、`currencies`、`favorites` 或 `tags` |
+| `code` | 錯誤碼；無法取得時為 `unknown` |
+| `status` | 原始錯誤可取得的 HTTP 狀態碼；無法取得時為 `0` |
+| `attempts` | 資料讀取嘗試次數，介於 1～3 次 |
+
+注意：`/api/client-errors` 回應 `204` 表示上報端點已處理請求（可能因去重而省略寫入），不代表原始資料讀取成功。原始錯誤要看 Log Messages 內的欄位；`DEPLOYMENT_CHECK` 是部署驗證用紀錄。
+
+上報流程為「瀏覽器 → 同站 `/api/client-errors` → 伺服器驗證欄位 → Vercel 收集伺服器日誌」，不需要額外的 Vercel API Key。瀏覽器不再輸出這套錯誤到 Console，也不將錯誤存入 Supabase；上報內容不含原始錯誤文字、帳目、Email 或登入憑證。
+
+為避免紀錄持續累積：
+
+- 相同項目／狀態／錯誤碼，30 分鐘內最多上報一次；每個瀏覽器滾動 24 小時最多 10 次。瀏覽器只保留最多 10 筆去重指紋與時間，沒有待傳佇列。
+- 上報失敗不重試、不補傳，因此完全斷網時可能查不到紀錄。清除網站資料或不同裝置不共享額度；伺服器另有每個執行個體的去重與限流，詳見 [部署指南](DEPLOYMENT_GUIDE.md#記帳載入錯誤日誌)。
+- Vercel 日誌依方案自動到期，不需自行排程刪除。截至 2026-09-09，Hobby 保存 **1 小時**、Pro 保存 **1 天**、Pro＋Observability Plus 保存 **30 天**；以 [官方保存期限](https://vercel.com/docs/logs/runtime#limits) 為準。
+
 ## CSV 規則
 
 - 匯出使用 `private-accounting-tool-v3` 格式；預付帳目會自動連同所有攤提子帳目匯出，避免備份不完整。
