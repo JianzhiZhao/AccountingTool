@@ -30,7 +30,11 @@ describe("login recovery", () => {
   it("restores an existing login without a button click", async () => {
     mocks.getUser.mockResolvedValue({ data: { user: { id: "user" } }, error: null });
     render(<LoginForm />);
+    expect(screen.queryByLabelText("Email")).toBeNull();
+    expect(screen.queryByText("歡迎回來")).toBeNull();
     await waitFor(() => expect(mocks.router.replace).toHaveBeenCalledWith("/app"));
+    expect(screen.queryByLabelText("Email")).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("快速記一筆");
   });
 
   it("allows login when there is no session", async () => {
@@ -44,6 +48,7 @@ describe("login recovery", () => {
     mocks.getUser.mockRejectedValueOnce(new TypeError("Failed to fetch"));
     render(<LoginForm />);
     expect((await screen.findByRole("alert")).textContent).toContain("暫時無法連線");
+    expect(screen.queryByLabelText("Email")).toBeNull();
     mocks.getUser.mockResolvedValue({ data: { user: { id: "user" } }, error: null });
     fireEvent.click(screen.getByRole("button", { name: "重試連線並恢復登入" }));
     await waitFor(() => expect(mocks.router.replace).toHaveBeenCalledWith("/app"));
@@ -56,6 +61,7 @@ describe("login recovery", () => {
     await act(() => vi.advanceTimersByTimeAsync(12_000));
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.getByRole("alert").textContent).toContain("暫時無法連線");
+    expect(screen.queryByLabelText("Email")).toBeNull();
     expect(mocks.router.replace).not.toHaveBeenCalled();
   });
 
@@ -65,7 +71,7 @@ describe("login recovery", () => {
   ])("releases the submit button on %s failure", async (_name, response, message) => {
     mocks.signInWithPassword.mockImplementation(response);
     render(<LoginForm />);
-    const button = screen.getByRole("button", { name: "登入" }) as HTMLButtonElement;
+    const button = await screen.findByRole("button", { name: "登入" }) as HTMLButtonElement;
     await waitFor(() => expect(button.disabled).toBe(false));
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "test@example.com" } });
     fireEvent.change(screen.getByLabelText("密碼"), { target: { value: "password" } });
