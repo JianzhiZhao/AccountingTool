@@ -3,6 +3,7 @@ import type { CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseConfig } from "@/lib/supabase/config";
 import { isSqliteDevelopment } from "@/lib/backend";
+import { authFetch } from "@/lib/supabase/auth-recovery";
 
 export async function proxy(request: NextRequest) {
   if (isSqliteDevelopment()) return NextResponse.next({ request });
@@ -11,6 +12,7 @@ export async function proxy(request: NextRequest) {
 
   let response = NextResponse.next({ request });
   const supabase = createServerClient(config.url, config.anonKey, {
+    global: { fetch: authFetch },
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll: (cookiesToSet: { name: string; value: string; options: CookieOptions }[]) => {
@@ -20,10 +22,11 @@ export async function proxy(request: NextRequest) {
       },
     },
   });
-  await supabase.auth.getUser();
+  // Only refresh cookies here. Protected pages still verify identity with getUser,
+  // and database access is independently protected by RLS.
+  await supabase.auth.getSession();
   return response;
 }
 
-// Refresh sessions only on account pages. The root redirect and generated icons
-// do not need an Auth request before they can return a response.
-export const config = { matcher: ["/app/:path*", "/login", "/forgot-password", "/update-password"] };
+// Login restores the session in the browser so its UI never waits on the proxy.
+export const config = { matcher: ["/app/:path*", "/update-password"] };

@@ -6,6 +6,8 @@ import { ExpenseForm } from "../expense-form";
 import { listCategories, listCurrencies } from "@/lib/data";
 
 vi.mock("@/lib/backend", () => ({ isSqliteDevelopment: () => true }));
+const router = vi.hoisted(() => ({ replace: vi.fn(), refresh: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => router }));
 
 const { categoryId, listFavorites, listTags, saveExpense } = vi.hoisted(() => ({
   categoryId: "11111111-1111-4111-8111-111111111111",
@@ -52,6 +54,12 @@ vi.mock("@/lib/data", () => ({
 describe("ExpenseForm", () => {
   afterEach(cleanup);
   beforeEach(() => { vi.clearAllMocks(); sessionStorage.clear(); });
+
+  it("automatically redirects when settings require login", async () => {
+    vi.mocked(listCategories).mockRejectedValueOnce({ code: "SESSION_MISSING" });
+    render(<ExpenseForm />);
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
+  });
 
   it.each([
     ["categories", listCategories], ["currencies", listCurrencies],

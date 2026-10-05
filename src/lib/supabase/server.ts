@@ -2,12 +2,14 @@ import { createServerClient } from "@supabase/ssr";
 import type { CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { getSupabaseConfig } from "./config";
+import { authFetch } from "./auth-recovery";
 
 export async function createClient() {
   const config = getSupabaseConfig();
   if (!config) throw new Error("Supabase 尚未設定");
   const cookieStore = await cookies();
   return createServerClient(config.url, config.anonKey, {
+    global: { fetch: authFetch },
     cookies: {
       getAll: () => cookieStore.getAll(),
       setAll: (cookiesToSet: { name: string; value: string; options: CookieOptions }[]) => {

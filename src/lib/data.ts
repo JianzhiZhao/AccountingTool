@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { CONNECTION_MESSAGE, isSessionExpired, withAuthTimeout } from "@/lib/supabase/auth-recovery";
 import { isSqliteDevelopment } from "@/lib/backend";
 import { normalizeExpenseInput } from "@/lib/validation";
 import { todayInTaipei } from "@/lib/date";
@@ -20,8 +21,12 @@ async function devPost<T = { ok: true }>(body: Record<string, unknown>) {
 
 async function userId() {
   if (isSqliteDevelopment()) return LOCAL_USER_ID;
-  const { data: { user }, error } = await createClient().auth.getUser();
-  if (error || !user) throw new Error("登入已逾時，請重新登入");
+  const { data: { user }, error } = await withAuthTimeout(createClient().auth.getUser());
+  if (error && !isSessionExpired(error)) throw new Error(CONNECTION_MESSAGE);
+  if (!user || error) {
+    window.location.replace("/login");
+    throw new Error("登入已失效，正在前往登入頁面…");
+  }
   return user.id;
 }
 

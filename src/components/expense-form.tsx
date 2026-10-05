@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, Hash, Heart, LoaderCircle, Save } from "lucide-react";
 import { generateAmortizationSchedule } from "@/lib/amortization";
 import { saveExpense } from "@/lib/data";
 import { ExpenseSettingsError, loadExpenseSettings } from "@/lib/expense-settings";
+import { withAuthTimeout } from "@/lib/supabase/auth-recovery";
 import { todayInTaipei } from "@/lib/date";
 import { normalizeExpenseInput } from "@/lib/validation";
 import type { Category, EnabledCurrency, Expense, ExpenseInput, FavoriteTemplate, Tag } from "@/types/domain";
@@ -14,6 +16,7 @@ import { StatusMessage } from "./status-message";
 const blank = (): ExpenseInput => ({ item_name: "", expense_date: todayInTaipei(), amount: 0, currency_code: "TWD", category_id: "", note: "", exchange_rate_to_twd: 1, tag_ids: [], expense_type: "general", amortization_unit: null, amortization_periods: null, amortization_start_date: null });
 
 export function ExpenseForm({ initialExpense, onSaved }: { initialExpense?: Expense; onSaved?: () => void }) {
+  const router = useRouter();
   const [form, setForm] = useState<ExpenseInput>(() => initialExpense ? {
     item_name: initialExpense.item_name, expense_date: initialExpense.expense_date, amount: initialExpense.amount,
     currency_code: initialExpense.currency_code, category_id: initialExpense.category_id, note: initialExpense.note,
@@ -32,7 +35,7 @@ export function ExpenseForm({ initialExpense, onSaved }: { initialExpense?: Expe
     const controller = new AbortController();
     async function loadSettings() {
       try {
-        const [allCategories, allCurrencies, f, allTags] = await loadExpenseSettings(Boolean(initialExpense), controller.signal);
+        const [allCategories, allCurrencies, f, allTags] = await withAuthTimeout(loadExpenseSettings(Boolean(initialExpense), controller.signal));
         if (cancelled) return;
         const c = initialExpense ? allCategories.filter((item) => item.is_active || item.id === initialExpense.category_id) : allCategories;
         const u = initialExpense ? allCurrencies.filter((item) => item.is_active || item.code === initialExpense.currency_code) : allCurrencies;
@@ -51,6 +54,9 @@ export function ExpenseForm({ initialExpense, onSaved }: { initialExpense?: Expe
       } catch (cause) {
         if (!cancelled) {
           setRequiresLogin(cause instanceof ExpenseSettingsError && cause.requiresLogin);
+          if (cause instanceof ExpenseSettingsError && cause.requiresLogin) {
+            router.replace("/login"); router.refresh();
+          }
           setLoadError(cause instanceof ExpenseSettingsError ? cause.message : "無法載入記帳設定，請重新載入。");
         }
       } finally {
@@ -60,7 +66,7 @@ export function ExpenseForm({ initialExpense, onSaved }: { initialExpense?: Expe
     }
     void loadSettings();
     return () => { cancelled = true; controller.abort(); };
-  }, [initialExpense, loadAttempt]);
+  }, [initialExpense, loadAttempt, router]);
 
   const retryLoad = useCallback(() => {
     setLoading(true);
