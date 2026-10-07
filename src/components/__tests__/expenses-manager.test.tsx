@@ -102,7 +102,7 @@ vi.mock("@/lib/data", () => ({
   listCategories: vi.fn().mockResolvedValue([]),
   listCurrencies: vi.fn().mockResolvedValue([]),
   listTags: vi.fn().mockResolvedValue([{ id: "tag-travel", user_id: "dev-user", name: "旅遊", is_active: false, sort_order: 0, created_at: "2026-08-21", updated_at: "2026-08-21" }]),
-  listExpenseFamily: vi.fn().mockResolvedValue([]),
+  listExpenseFamily: vi.fn().mockResolvedValue(expenses.filter((expense) => expense.expense_type !== "general")),
   deleteExpense: vi.fn(),
   updatePrepaidPaymentDate: vi.fn().mockResolvedValue(undefined),
 }));
@@ -189,17 +189,18 @@ describe("ExpensesManager", () => {
     const child = (await screen.findByText("年度保險攤提")).closest("article")!;
 
     expect(within(parent).queryByLabelText("編輯帳目")).toBeNull();
-    expect(within(parent).getByLabelText("編輯付款發生日期")).toBeTruthy();
-    expect(within(child).queryByLabelText("編輯付款發生日期")).toBeNull();
-    expect(within(parent).getByLabelText("查看預付攤提明細")).toBeTruthy();
+    expect(within(parent).getByLabelText("查看與編輯預付帳目")).toBeTruthy();
+    expect(within(child).queryByLabelText("查看與編輯預付帳目")).toBeNull();
+    expect(within(parent).queryByLabelText("查看預付攤提明細")).toBeNull();
+    expect(within(parent).getAllByRole("button")).toHaveLength(2);
     expect(within(parent).getByLabelText("永久刪除預付與攤提")).toBeTruthy();
     expect(within(child).queryByLabelText("編輯帳目")).toBeNull();
     expect(within(child).queryByLabelText(/永久刪除/)).toBeNull();
   });
   it.each(["2026-07-31", "2026-08-01"])("saves payment date %s and reloads the list", async (date) => {
     render(<ExpensesManager />);
-    fireEvent.click(await screen.findByLabelText("編輯付款發生日期"));
-    const input = screen.getByLabelText("付款發生日期") as HTMLInputElement;
+    fireEvent.click(await screen.findByLabelText("查看與編輯預付帳目"));
+    const input = await screen.findByLabelText("付款發生日期") as HTMLInputElement;
     expect(input.max).toBe("2026-08-01");
     fireEvent.change(input, { target: { value: date } });
     const calls = listExpenses.mock.calls.length;
@@ -211,8 +212,8 @@ describe("ExpensesManager", () => {
 
   it("rejects dates after the first installment even on direct form submission", async () => {
     render(<ExpensesManager />);
-    fireEvent.click(await screen.findByLabelText("編輯付款發生日期"));
-    const input = screen.getByLabelText("付款發生日期");
+    fireEvent.click(await screen.findByLabelText("查看與編輯預付帳目"));
+    const input = await screen.findByLabelText("付款發生日期");
     fireEvent.change(input, { target: { value: "2026-08-02" } });
     fireEvent.submit(input.closest("form")!);
     expect(await screen.findByText("付款發生日期不可晚於第 1 期發生日期")).toBeTruthy();
@@ -222,10 +223,31 @@ describe("ExpensesManager", () => {
   it("keeps the editor open when saving fails", async () => {
     vi.mocked(updatePrepaidPaymentDate).mockRejectedValueOnce(new Error("儲存失敗"));
     render(<ExpensesManager />);
-    fireEvent.click(await screen.findByLabelText("編輯付款發生日期"));
-    fireEvent.submit(screen.getByLabelText("付款發生日期").closest("form")!);
+    fireEvent.click(await screen.findByLabelText("查看與編輯預付帳目"));
+    fireEvent.submit((await screen.findByLabelText("付款發生日期")).closest("form")!);
     expect(await screen.findByText("儲存失敗")).toBeTruthy();
     expect(screen.getByLabelText("付款發生日期")).toBeTruthy();
+  });
+
+  it("combines prepaid details and editing without duplicate headings or TWD amounts", async () => {
+    render(<ExpensesManager />);
+    fireEvent.click(await screen.findByLabelText("查看與編輯預付帳目"));
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getAllByText("年度保險")).toHaveLength(1);
+    expect(dialog.getAllByLabelText("付款發生日期")).toHaveLength(1);
+    expect(dialog.getByText("第 1 期")).toBeTruthy();
+    expect(dialog.getByText("100 TWD")).toBeTruthy();
+    expect(dialog.queryByText(formatMoney(100))).toBeNull();
+    expect(dialog.getByRole("button", { name: "儲存變更" })).toBeTruthy();
+  });
+
+  it("keeps installment previews read-only", async () => {
+    render(<ExpensesManager />);
+    fireEvent.click(await screen.findByLabelText("查看預付攤提明細"));
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getByText("第 1 期")).toBeTruthy();
+    expect(dialog.queryByLabelText("付款發生日期")).toBeNull();
+    expect(dialog.queryByRole("button", { name: "儲存變更" })).toBeNull();
   });
 
 });
