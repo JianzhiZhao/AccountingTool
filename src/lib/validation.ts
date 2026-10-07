@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { amountToScaledUnits, amountToWholeUnits, MAX_DAILY_PERIODS, MAX_MONTHLY_PERIODS } from "@/lib/amortization";
 
+export const paymentDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "請選擇有效日期").refine(isRealDate, "請選擇有效日期");
+
 export const tagIdsSchema = z.array(z.string().uuid("Tag 格式不正確")).default([]);
 export const orderedIdsSchema = z.array(z.string().uuid("排序資料格式不正確")).max(500, "排序項目過多");
 export const exchangeRateSchema = z.coerce.number().positive("匯率必須大於 0");

@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { updatePrepaidPaymentDate } from "@/lib/data";
 import { formatMoney } from "@/lib/analytics";
 import { ExpensesManager } from "../expenses-manager";
 
@@ -103,6 +104,7 @@ vi.mock("@/lib/data", () => ({
   listTags: vi.fn().mockResolvedValue([{ id: "tag-travel", user_id: "dev-user", name: "旅遊", is_active: false, sort_order: 0, created_at: "2026-08-21", updated_at: "2026-08-21" }]),
   listExpenseFamily: vi.fn().mockResolvedValue([]),
   deleteExpense: vi.fn(),
+  updatePrepaidPaymentDate: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../csv-tools", () => ({ CsvTools: () => null }));
@@ -112,6 +114,7 @@ describe("ExpensesManager", () => {
   const scrollIntoView = vi.fn();
   beforeEach(() => {
     scrollIntoView.mockClear();
+    vi.mocked(updatePrepaidPaymentDate).mockClear();
     vi.stubGlobal("HTMLElement", HTMLElement);
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
   });
@@ -179,16 +182,50 @@ describe("ExpensesManager", () => {
     await waitFor(() => expect(listExpenses).toHaveBeenLastCalledWith(expect.objectContaining({ tagId: "tag-travel" })));
   });
 
-  it("shows related expenses as immutable and only lets the prepaid parent be deleted", async () => {
+  it("only allows payment date editing and deletion for the prepaid parent", async () => {
     render(<ExpensesManager />);
 
     const parent = (await screen.findByText("年度保險")).closest("article")!;
     const child = (await screen.findByText("年度保險攤提")).closest("article")!;
 
     expect(within(parent).queryByLabelText("編輯帳目")).toBeNull();
+    expect(within(parent).getByLabelText("編輯付款發生日期")).toBeTruthy();
+    expect(within(child).queryByLabelText("編輯付款發生日期")).toBeNull();
     expect(within(parent).getByLabelText("查看預付攤提明細")).toBeTruthy();
     expect(within(parent).getByLabelText("永久刪除預付與攤提")).toBeTruthy();
     expect(within(child).queryByLabelText("編輯帳目")).toBeNull();
     expect(within(child).queryByLabelText(/永久刪除/)).toBeNull();
   });
+  it.each(["2026-07-31", "2026-08-01"])("saves payment date %s and reloads the list", async (date) => {
+    render(<ExpensesManager />);
+    fireEvent.click(await screen.findByLabelText("編輯付款發生日期"));
+    const input = screen.getByLabelText("付款發生日期") as HTMLInputElement;
+    expect(input.max).toBe("2026-08-01");
+    fireEvent.change(input, { target: { value: date } });
+    const calls = listExpenses.mock.calls.length;
+    fireEvent.submit(input.closest("form")!);
+    await waitFor(() => expect(updatePrepaidPaymentDate).toHaveBeenCalledWith("expense-prepaid", date));
+    await waitFor(() => expect(listExpenses.mock.calls.length).toBeGreaterThan(calls));
+    expect(screen.queryByLabelText("付款發生日期")).toBeNull();
+  });
+
+  it("rejects dates after the first installment even on direct form submission", async () => {
+    render(<ExpensesManager />);
+    fireEvent.click(await screen.findByLabelText("編輯付款發生日期"));
+    const input = screen.getByLabelText("付款發生日期");
+    fireEvent.change(input, { target: { value: "2026-08-02" } });
+    fireEvent.submit(input.closest("form")!);
+    expect(await screen.findByText("付款發生日期不可晚於第 1 期發生日期")).toBeTruthy();
+    expect(updatePrepaidPaymentDate).not.toHaveBeenCalled();
+  });
+
+  it("keeps the editor open when saving fails", async () => {
+    vi.mocked(updatePrepaidPaymentDate).mockRejectedValueOnce(new Error("儲存失敗"));
+    render(<ExpensesManager />);
+    fireEvent.click(await screen.findByLabelText("編輯付款發生日期"));
+    fireEvent.submit(screen.getByLabelText("付款發生日期").closest("form")!);
+    expect(await screen.findByText("儲存失敗")).toBeTruthy();
+    expect(screen.getByLabelText("付款發生日期")).toBeTruthy();
+  });
+
 });

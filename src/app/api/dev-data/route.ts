@@ -3,7 +3,7 @@ import type { StatementSync } from "node:sqlite";
 import { NextRequest, NextResponse } from "next/server";
 import { isSqliteDevelopment } from "@/lib/backend";
 import { getSqliteDatabase, LOCAL_USER_ID } from "@/lib/sqlite/database";
-import { normalizeExpenseInput, categoryNameSchema, exchangeRateSchema, orderedIdsSchema, tagIdsSchema, tagNameSchema } from "@/lib/validation";
+import { paymentDateSchema, normalizeExpenseInput, categoryNameSchema, exchangeRateSchema, orderedIdsSchema, tagIdsSchema, tagNameSchema } from "@/lib/validation";
 import { generateAmortizationSchedule } from "@/lib/amortization";
 import type { ImportedExpenseRecord } from "@/types/domain";
 
@@ -67,6 +67,21 @@ export async function POST(request: NextRequest) {
   if (!isSqliteDevelopment()) return unavailable();
   try {
     const db = getSqliteDatabase(); const body = await request.json() as Record<string, unknown>; const action = String(body.action ?? ""); const now = new Date().toISOString();
+    if (action === "updatePrepaidPaymentDate") {
+      const date = paymentDateSchema.parse(body.expense_date);
+      const id = String(body.id ?? "");
+      db.exec("begin");
+      try {
+        const parent = db.prepare("select amortization_start_date from expenses where id=? and expense_type='prepaid'").get(id);
+        if (!parent) throw new Error("找不到預付帳目");
+        const first = db.prepare("select expense_date from expenses where parent_expense_id=? and amortization_sequence=1 and expense_type='amortized'").get(id) as { expense_date: string } | undefined;
+        if (!first) throw new Error("找不到第 1 期攤提帳目");
+        if (date > first.expense_date) throw new Error("付款發生日期不可晚於第 1 期發生日期");
+        db.prepare("update expenses set expense_date=?, updated_at=? where id=?").run(date, now, id);
+        db.exec("commit");
+      } catch (error) { db.exec("rollback"); throw error; }
+      return NextResponse.json({ ok: true });
+    }
     if (action === "saveExpense") {
       const input = normalizeExpenseInput(body.input); const id = typeof body.id === "string" ? body.id : randomUUID();
       db.exec("begin");

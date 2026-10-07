@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/client";
 import { CONNECTION_MESSAGE, isSessionExpired, withAuthTimeout } from "@/lib/supabase/auth-recovery";
 import { isSqliteDevelopment } from "@/lib/backend";
-import { normalizeExpenseInput } from "@/lib/validation";
+import { normalizeExpenseInput, paymentDateSchema } from "@/lib/validation";
 import { todayInTaipei } from "@/lib/date";
 import type { Category, EnabledCurrency, Expense, ExpenseFilters, ExpenseInput, FavoriteInput, FavoriteTemplate, ImportedExpenseRecord, Tag } from "@/types/domain";
 
@@ -140,6 +140,13 @@ export async function saveExpense(input: ExpenseInput, id?: string) {
     const { error: tagError } = await client.from("expense_tags").insert(tag_ids.map((tagId) => ({ expense_id: expenseId, tag_id: tagId, user_id: uid })));
     if (tagError) throw tagError;
   }
+}
+
+export async function updatePrepaidPaymentDate(id: string, date: string) {
+  const expense_date = paymentDateSchema.parse(date);
+  if (isSqliteDevelopment()) { await devPost({ action: "updatePrepaidPaymentDate", id, expense_date }); return; }
+  const { error } = await createClient().from("expenses").update({ expense_date }).eq("id", id).eq("expense_type", "prepaid").select("id").single();
+  if (error) throw new Error(error.message);
 }
 
 export async function deleteExpense(id: string) {

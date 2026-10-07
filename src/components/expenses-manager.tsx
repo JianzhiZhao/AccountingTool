@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Download, Eye, Filter, LoaderCircle, Pencil, Search, Trash2, Upload, X } from "lucide-react";
-import { deleteExpense, listCategories, listCurrencies, listExpenseFamily, listExpenses, listTags } from "@/lib/data";
+import { updatePrepaidPaymentDate, deleteExpense, listCategories, listCurrencies, listExpenseFamily, listExpenses, listTags } from "@/lib/data";
 import { generateAmortizationSchedule } from "@/lib/amortization";
 import { EMPTY_FILTERS } from "@/lib/constants";
 import { formatDateZh, todayInTaipei } from "@/lib/date";
@@ -75,14 +75,37 @@ export function ExpensesManager() {
       {loading ? <div className="flex min-h-48 items-center justify-center"><LoaderCircle className="animate-spin text-moss-600" /></div> : expenses.length === 0 ? <div className="px-5 py-16 text-center text-stone-400">找不到符合條件的帳目</div> : <div ref={listRef} className="scroll-mt-4 divide-y divide-stone-100">{visibleExpenses.map((expense) => <ExpenseRow key={expense.id} expense={expense} onEdit={() => setEditing(expense)} onRemove={() => remove(expense)} onFamily={() => openFamily(expense)} />)}</div>}
       {!loading && expenses.length > 0 && <nav aria-label="帳目分頁" className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 px-5 py-4"><p className="text-sm text-stone-500" aria-live="polite">顯示第 {pageStart + 1}–{Math.min(pageStart + pageSize, expenses.length)} 筆，共 {expenses.length} 筆</p><div className="flex items-center gap-3"><button type="button" className="btn-secondary" disabled={currentPage === 1} onClick={() => changePage(currentPage - 1)}>上一頁</button><span className="text-sm text-stone-500">第 {currentPage} / {totalPages} 頁</span><button type="button" className="btn-secondary" disabled={currentPage === totalPages} onClick={() => changePage(currentPage + 1)}>下一頁</button></div></nav>}
     </section>
-    {editing && <Modal onClose={() => setEditing(null)}><ExpenseForm initialExpense={editing} onSaved={() => { setEditing(null); void load(); }} /></Modal>}
+    {editing && <Modal onClose={() => setEditing(null)}>{editing.expense_type === "prepaid" ? <PrepaidPaymentDateForm expense={editing} onSaved={() => { setEditing(null); setMessage("付款發生日期已更新。"); void load(); }} /> : <ExpenseForm initialExpense={editing} onSaved={() => { setEditing(null); void load(); }} />}</Modal>}
     {family && <Modal onClose={() => setFamily(null)}><FamilyDetails family={family} /></Modal>}
   </div>;
 }
 
 function ExpenseRow({ expense, onEdit, onRemove, onFamily }: { expense: Expense; onEdit: () => void; onRemove: () => void; onFamily: () => void }) {
   const isConverted = expense.currency_code !== "TWD"; const progress = expense.expense_type === "prepaid" ? prepaidProgress(expense) : null;
-  return <article className="flex gap-3 px-5 py-4 hover:bg-stone-50/70"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-x-2 gap-y-1"><h3 className="truncate font-semibold">{expense.item_name}</h3><span className={`rounded-full px-2 py-0.5 text-xs ${typeStyles[expense.expense_type]}`}>{typeLabels[expense.expense_type]}</span><span className="rounded-full bg-moss-50 px-2 py-0.5 text-xs text-moss-700">{expense.categories?.name ?? "分類已移除"}</span></div>{expense.note && <p className="mt-1 truncate text-sm text-stone-500">{expense.note}</p>}{Boolean(expense.tags?.length) && <div className="mt-1.5 flex flex-wrap gap-1.5">{expense.tags?.map((tag) => <span key={tag.id} className="rounded-full bg-stone-100 px-2 py-0.5 text-[11px] text-stone-500">#{tag.name}</span>)}</div>}<p className="mt-1 text-xs text-stone-400"><span>{formatDateZh(expense.expense_date)}</span>{expense.expense_type === "amortized" && <span> · 第 {expense.amortization_sequence} 期</span>}{isConverted && <><span> · </span><span>{formatMoney(expense.amount, expense.currency_code)}</span></>}</p>{progress && <p className="mt-2 text-xs text-amber-700">已完成 {progress.completed}/{expense.amortization_periods} 期 · 剩餘 {progress.remaining.toFixed(4)} {expense.currency_code}（約 {formatMoney(progress.remaining * expense.exchange_rate_to_twd)}）</p>}</div><div className="shrink-0 text-right"><div className="flex items-center justify-end gap-2">{isConverted && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">換算</span>}<p className="font-bold">{formatMoney(expense.amount_twd, "TWD")}</p></div><div className="mt-2 flex justify-end">{expense.expense_type === "general" ? <><button aria-label="編輯帳目" className="rounded-xl p-2 text-stone-400 hover:bg-moss-50 hover:text-moss-700" onClick={onEdit}><Pencil size={17} /></button><button aria-label="永久刪除帳目" className="rounded-xl p-2 text-stone-400 hover:bg-red-50 hover:text-red-700" onClick={onRemove}><Trash2 size={17} /></button></> : <><button aria-label="查看預付攤提明細" className="rounded-xl p-2 text-stone-400 hover:bg-moss-50 hover:text-moss-700" onClick={onFamily}><Eye size={17} /></button>{expense.expense_type === "prepaid" && <button aria-label="永久刪除預付與攤提" className="rounded-xl p-2 text-stone-400 hover:bg-red-50 hover:text-red-700" onClick={onRemove}><Trash2 size={17} /></button>}</>}</div></div></article>;
+  return <article className="flex gap-3 px-5 py-4 hover:bg-stone-50/70"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-x-2 gap-y-1"><h3 className="truncate font-semibold">{expense.item_name}</h3><span className={`rounded-full px-2 py-0.5 text-xs ${typeStyles[expense.expense_type]}`}>{typeLabels[expense.expense_type]}</span><span className="rounded-full bg-moss-50 px-2 py-0.5 text-xs text-moss-700">{expense.categories?.name ?? "分類已移除"}</span></div>{expense.note && <p className="mt-1 truncate text-sm text-stone-500">{expense.note}</p>}{Boolean(expense.tags?.length) && <div className="mt-1.5 flex flex-wrap gap-1.5">{expense.tags?.map((tag) => <span key={tag.id} className="rounded-full bg-stone-100 px-2 py-0.5 text-[11px] text-stone-500">#{tag.name}</span>)}</div>}<p className="mt-1 text-xs text-stone-400"><span>{formatDateZh(expense.expense_date)}</span>{expense.expense_type === "amortized" && <span> · 第 {expense.amortization_sequence} 期</span>}{isConverted && <><span> · </span><span>{formatMoney(expense.amount, expense.currency_code)}</span></>}</p>{progress && <p className="mt-2 text-xs text-amber-700">已完成 {progress.completed}/{expense.amortization_periods} 期 · 剩餘 {progress.remaining.toFixed(4)} {expense.currency_code}（約 {formatMoney(progress.remaining * expense.exchange_rate_to_twd)}）</p>}</div><div className="shrink-0 text-right"><div className="flex items-center justify-end gap-2">{isConverted && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">換算</span>}<p className="font-bold">{formatMoney(expense.amount_twd, "TWD")}</p></div><div className="mt-2 flex justify-end">{expense.expense_type === "general" ? <><button aria-label="編輯帳目" className="rounded-xl p-2 text-stone-400 hover:bg-moss-50 hover:text-moss-700" onClick={onEdit}><Pencil size={17} /></button><button aria-label="永久刪除帳目" className="rounded-xl p-2 text-stone-400 hover:bg-red-50 hover:text-red-700" onClick={onRemove}><Trash2 size={17} /></button></> : <>{expense.expense_type === "prepaid" && <button aria-label="編輯付款發生日期" className="rounded-xl p-2 text-stone-400 hover:bg-moss-50 hover:text-moss-700" onClick={onEdit}><Pencil size={17} /></button>}<button aria-label="查看預付攤提明細" className="rounded-xl p-2 text-stone-400 hover:bg-moss-50 hover:text-moss-700" onClick={onFamily}><Eye size={17} /></button>{expense.expense_type === "prepaid" && <button aria-label="永久刪除預付與攤提" className="rounded-xl p-2 text-stone-400 hover:bg-red-50 hover:text-red-700" onClick={onRemove}><Trash2 size={17} /></button>}</>}</div></div></article>;
+}
+
+function PrepaidPaymentDateForm({ expense, onSaved }: { expense: Expense; onSaved: () => void }) {
+  const [date, setDate] = useState(expense.expense_date);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const firstDate = expense.amortization_start_date;
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!date || !firstDate || date > firstDate) { setError("付款發生日期不可晚於第 1 期發生日期"); return; }
+    setSaving(true); setError("");
+    try { await updatePrepaidPaymentDate(expense.id, date); onSaved(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "儲存失敗，請稍後再試。"); }
+    finally { setSaving(false); }
+  }
+  return <form className="card space-y-4" onSubmit={submit}>
+    <h2 className="text-xl font-bold">編輯付款發生日期</h2>
+    <p className="text-stone-600">{expense.item_name}</p>
+    <div><label className="label" htmlFor="prepaid-payment-date">付款發生日期</label><input id="prepaid-payment-date" className="field" type="date" required max={firstDate ?? undefined} value={date} disabled={saving} onChange={(event) => setDate(event.target.value)} /></div>
+    <p className="text-sm text-stone-500">付款發生日期不可晚於第 1 期發生日期{firstDate ? `（${formatDateZh(firstDate)}）` : ""}。</p>
+    <StatusMessage message={error} error={Boolean(error)} />
+    <button type="submit" className="btn-primary" disabled={saving || !firstDate}>{saving ? "儲存中…" : "儲存變更"}</button>
+  </form>;
 }
 
 function FamilyDetails({ family }: { family: Expense[] }) {
