@@ -31,6 +31,20 @@ function visibleExpenseIds() {
 describe("AnalyticsDashboard expense list", () => {
   afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
+  it("fills the start and end dates for the selected year and month", async () => {
+    renderDashboard([base]);
+    await screen.findByRole("link", { name: /午餐/ });
+
+    fireEvent.change(screen.getByLabelText("選擇月份"), { target: { value: "2024-02" } });
+
+    expect((screen.getByLabelText("開始日期") as HTMLInputElement).value).toBe("2024-02-01");
+    expect((screen.getByLabelText("結束日期") as HTMLInputElement).value).toBe("2024-02-29");
+
+    fireEvent.change(screen.getByLabelText("選擇月份"), { target: { value: "2026-11" } });
+    expect((screen.getByLabelText("開始日期") as HTMLInputElement).value).toBe("2026-11-01");
+    expect((screen.getByLabelText("結束日期") as HTMLInputElement).value).toBe("2026-11-30");
+  });
+
   it("keeps duplicate item names separate and paginates every 20 expenses", async () => {
     const rows = Array.from({ length: 21 }, (_, index) => ({
       ...base,

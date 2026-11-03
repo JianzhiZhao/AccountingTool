@@ -16,6 +16,12 @@ const typeOptions: { value: ExpenseType; label: string }[] = [{ value: "general"
 type ExpenseSortKey = "amount" | "date";
 type SortDirection = "asc" | "desc";
 
+function monthToDateRange(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  return { from: `${month}-01`, to: `${month}-${String(lastDay).padStart(2, "0")}` };
+}
+
 export function AnalyticsDashboard() {
   const initial = currentMonthToToday();
   const [from, setFrom] = useState(initial.from); const [to, setTo] = useState(initial.to); const [range, setRange] = useState(initial);
@@ -25,6 +31,7 @@ export function AnalyticsDashboard() {
   const [sortKey, setSortKey] = useState<ExpenseSortKey>("amount");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [page, setPage] = useState(1);
+  const selectedMonth = from && to && from === `${from.slice(0, 7)}-01` && to === monthToDateRange(from.slice(0, 7)).to ? from.slice(0, 7) : "";
 
   useEffect(() => {
     let cancelled = false;
@@ -66,7 +73,7 @@ export function AnalyticsDashboard() {
 
   return <div className="space-y-5">
     <form onSubmit={apply} className="card space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end"><div className="min-w-0 flex-1"><label className="label">開始日期</label><input className="field" type="date" required value={from} onChange={(event) => setFrom(event.target.value)} /></div><div className="min-w-0 flex-1"><label className="label">結束日期</label><input className="field" type="date" required value={to} onChange={(event) => setTo(event.target.value)} /></div><button className="btn-primary"><CalendarRange size={18} />更新統計</button></div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end"><div className="min-w-0 flex-1"><label className="label" htmlFor="analytics-month">選擇月份</label><input id="analytics-month" className="field" type="month" value={selectedMonth} onChange={(event) => { if (!event.target.value) return; const next = monthToDateRange(event.target.value); setFrom(next.from); setTo(next.to); }} /></div><div className="min-w-0 flex-1"><label className="label" htmlFor="analytics-from">開始日期</label><input id="analytics-from" className="field" type="date" required value={from} onChange={(event) => setFrom(event.target.value)} /></div><div className="min-w-0 flex-1"><label className="label" htmlFor="analytics-to">結束日期</label><input id="analytics-to" className="field" type="date" required value={to} onChange={(event) => setTo(event.target.value)} /></div><button className="btn-primary"><CalendarRange size={18} />更新統計</button></div>
       <div><p className="label">篩選合計包含</p><div className="flex flex-wrap gap-2">{typeOptions.map((option) => { const selected = selectedTypes.includes(option.value); return <button type="button" key={option.value} aria-pressed={selected} onClick={() => toggleType(option.value)} className={`rounded-full border px-4 py-2 text-sm transition ${selected ? "border-moss-500 bg-moss-100 text-moss-700" : "border-stone-200 bg-white text-stone-500"}`}>{option.label}</button>; })}</div></div>
     </form>
     <StatusMessage message={error} error />
