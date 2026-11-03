@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, BarChart3, CalendarRange, ChevronRight, LoaderCircle, TrendingUp, Wallet } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { AlertTriangle, BarChart3, CalendarRange, ChevronRight, LoaderCircle, PieChart as PieChartIcon, TrendingUp, Wallet } from "lucide-react";
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { listExpenses } from "@/lib/data";
 import { currentMonthToToday, formatDateZh, monthToDateRange, todayInTaipei } from "@/lib/date";
 import { formatMoney, monthlyAccountingTrend, summarizeAccounting, summarizeExpenses } from "@/lib/analytics";
@@ -12,6 +12,7 @@ import { StatusMessage } from "./status-message";
 
 const axisStyle = { fontSize: 11, fill: "#656c52" };
 const tooltipStyle = { backgroundColor: "#f4f3e6", border: "1px solid #ced2b5", borderRadius: 14, color: "#252a1f" };
+const pieColors = ["#7ec151", "#fed24f", "#ef8354", "#60a5fa", "#a78bfa", "#f59e0b", "#2dd4bf", "#94a3b8"];
 const typeOptions: { value: ExpenseType; label: string }[] = [{ value: "general", label: "一般" }, { value: "prepaid", label: "預付" }, { value: "amortized", label: "攤提" }];
 type ExpenseSortKey = "amount" | "date";
 type SortDirection = "asc" | "desc";
@@ -45,6 +46,11 @@ export function AnalyticsDashboard() {
 
   const filtered = useMemo(() => periodExpenses.filter((expense) => selectedTypes.includes(expense.expense_type)), [periodExpenses, selectedTypes]);
   const summary = useMemo(() => summarizeExpenses(filtered), [filtered]);
+  const categoryPieData = useMemo(() => {
+    const topCategories = summary.byCategory.slice(0, 7);
+    const otherValue = summary.byCategory.slice(7).reduce((total, item) => total + item.value, 0);
+    return otherValue > 0 ? [...topCategories, { name: "其他", value: otherValue }] : topCategories;
+  }, [summary.byCategory]);
   const sortedExpenses = useMemo(() => [...filtered].sort((a, b) => {
     const comparison = sortKey === "amount" ? a.amount_twd - b.amount_twd : a.expense_date.localeCompare(b.expense_date);
     return comparison === 0 ? a.id.localeCompare(b.id) : sortDirection === "asc" ? comparison : -comparison;
@@ -87,6 +93,7 @@ export function AnalyticsDashboard() {
       <section className="grid gap-5 xl:grid-cols-2">
         <article className="card"><div className="mb-5 flex items-center gap-2"><TrendingUp className="text-moss-600" size={20} /><h2 className="font-bold">每月現金流與費用認列</h2></div><div className="h-72">{trendData.length ? <ResponsiveContainer width="100%" height="100%"><LineChart data={trendData} margin={{ left: 4, right: 8 }}><CartesianGrid strokeDasharray="3 3" stroke="#ced2b5" /><XAxis dataKey="date" tick={axisStyle} axisLine={{ stroke: "#b8be9c" }} tickLine={{ stroke: "#b8be9c" }} /><YAxis tick={axisStyle} axisLine={false} tickLine={false} width={56} /><Tooltip contentStyle={tooltipStyle} formatter={(value) => formatMoney(Number(value))} /><Legend /><Line type="monotone" name="現金流" dataKey="cashFlow" stroke="#ef8354" strokeWidth={3} /><Line type="monotone" name="費用認列" dataKey="recognized" stroke="#7ec151" strokeWidth={3} /><Line type="monotone" name="差異" dataKey="difference" stroke="#64748b" strokeWidth={2} strokeDasharray="5 4" /></LineChart></ResponsiveContainer> : <EmptyChart />}</div></article>
         <article className="card"><div className="mb-5 flex items-center gap-2"><BarChart3 className="text-coral" size={20} /><h2 className="font-bold">篩選分類分布</h2></div><div className="h-72">{summary.byCategory.length ? <ResponsiveContainer width="100%" height="100%"><BarChart data={summary.byCategory.slice(0, 8)} layout="vertical" margin={{ left: 8, right: 12 }}><CartesianGrid strokeDasharray="3 3" stroke="#ced2b5" /><XAxis type="number" tick={axisStyle} axisLine={{ stroke: "#b8be9c" }} tickLine={{ stroke: "#b8be9c" }} /><YAxis dataKey="name" type="category" tick={{ ...axisStyle, fontSize: 12 }} axisLine={false} tickLine={false} width={72} /><Tooltip contentStyle={tooltipStyle} formatter={(value) => formatMoney(Number(value))} /><Bar dataKey="value" fill="#fed24f" radius={[0, 8, 8, 0]} /></BarChart></ResponsiveContainer> : <EmptyChart />}</div></article>
+        <article className="card xl:col-span-2"><div className="mb-5 flex items-center gap-2"><PieChartIcon className="text-moss-600" size={20} /><h2 className="font-bold">篩選分類圓餅圖</h2></div><div className="h-80">{categoryPieData.length ? <ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={categoryPieData} dataKey="value" nameKey="name" cx="50%" cy="45%" outerRadius={95} paddingAngle={2} label={({ percent }) => `${((percent ?? 0) * 100).toFixed(0)}%`}>{categoryPieData.map((item, index) => <Cell key={item.name} fill={pieColors[index % pieColors.length]} />)}</Pie><Tooltip contentStyle={tooltipStyle} formatter={(value) => formatMoney(Number(value))} /><Legend verticalAlign="bottom" /></PieChart></ResponsiveContainer> : <EmptyChart />}</div></article>
       </section>
       <section className="card overflow-hidden p-0">
         <div className="flex flex-col gap-3 border-b border-stone-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">

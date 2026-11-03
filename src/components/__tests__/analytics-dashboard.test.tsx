@@ -8,7 +8,7 @@ import type { Expense } from "@/types/domain";
 vi.mock("@/lib/data", () => ({ listExpenses: vi.fn() }));
 vi.mock("recharts", () => {
   const Component = () => null;
-  return { Bar: Component, BarChart: Component, CartesianGrid: Component, Legend: Component, Line: Component, LineChart: Component, ResponsiveContainer: Component, Tooltip: Component, XAxis: Component, YAxis: Component };
+  return { Bar: Component, BarChart: Component, CartesianGrid: Component, Cell: Component, Legend: Component, Line: Component, LineChart: Component, Pie: Component, PieChart: Component, ResponsiveContainer: Component, Tooltip: Component, XAxis: Component, YAxis: Component };
 });
 
 const base: Expense = {
@@ -30,6 +30,12 @@ function visibleExpenseIds() {
 
 describe("AnalyticsDashboard expense list", () => {
   afterEach(() => { cleanup(); vi.clearAllMocks(); });
+
+  it("shows a pie chart for the filtered category distribution", async () => {
+    renderDashboard([base]);
+
+    expect(await screen.findByText("篩選分類圓餅圖")).toBeTruthy();
+  });
 
   it("fills the start and end dates for the selected year and month", async () => {
     renderDashboard([base]);
