@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BarChart3, CalendarRange, LoaderCircle, TrendingUp, Wallet } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, BarChart3, CalendarRange, ChevronRight, LoaderCircle, TrendingUp, Wallet } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { listExpenses } from "@/lib/data";
-import { currentMonthToToday, todayInTaipei } from "@/lib/date";
+import { currentMonthToToday, formatDateZh, todayInTaipei } from "@/lib/date";
 import { formatMoney, monthlyAccountingTrend, summarizeAccounting, summarizeExpenses } from "@/lib/analytics";
 import type { Expense, ExpenseType } from "@/types/domain";
 import { StatusMessage } from "./status-message";
@@ -12,6 +13,8 @@ import { StatusMessage } from "./status-message";
 const axisStyle = { fontSize: 11, fill: "#656c52" };
 const tooltipStyle = { backgroundColor: "#f4f3e6", border: "1px solid #ced2b5", borderRadius: 14, color: "#252a1f" };
 const typeOptions: { value: ExpenseType; label: string }[] = [{ value: "general", label: "一般" }, { value: "prepaid", label: "預付" }, { value: "amortized", label: "攤提" }];
+type ExpenseSortKey = "amount" | "date";
+type SortDirection = "asc" | "desc";
 
 export function AnalyticsDashboard() {
   const initial = currentMonthToToday();
@@ -19,6 +22,9 @@ export function AnalyticsDashboard() {
   const [selectedTypes, setSelectedTypes] = useState<ExpenseType[]>(["general", "amortized"]);
   const [periodExpenses, setPeriodExpenses] = useState<Expense[]>([]); const [throughEndExpenses, setThroughEndExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true); const [error, setError] = useState("");
+  const [sortKey, setSortKey] = useState<ExpenseSortKey>("amount");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,16 +44,24 @@ export function AnalyticsDashboard() {
 
   const filtered = useMemo(() => periodExpenses.filter((expense) => selectedTypes.includes(expense.expense_type)), [periodExpenses, selectedTypes]);
   const summary = useMemo(() => summarizeExpenses(filtered), [filtered]);
+  const sortedExpenses = useMemo(() => [...filtered].sort((a, b) => {
+    const comparison = sortKey === "amount" ? a.amount_twd - b.amount_twd : a.expense_date.localeCompare(b.expense_date);
+    return comparison === 0 ? a.id.localeCompare(b.id) : sortDirection === "asc" ? comparison : -comparison;
+  }), [filtered, sortKey, sortDirection]);
+  const totalPages = Math.max(1, Math.ceil(sortedExpenses.length / 20));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * 20;
+  const visibleExpenses = sortedExpenses.slice(pageStart, pageStart + 20);
   const accounting = useMemo(() => summarizeAccounting(periodExpenses, throughEndExpenses), [periodExpenses, throughEndExpenses]);
   const trendData = useMemo(() => monthlyAccountingTrend(periodExpenses), [periodExpenses]);
   const includesDoubleCount = selectedTypes.includes("prepaid") && selectedTypes.includes("amortized");
   const includesFuture = range.to > todayInTaipei();
 
-  function toggleType(type: ExpenseType) { setSelectedTypes((current) => current.includes(type) ? current.filter((item) => item !== type) : [...current, type]); }
+  function toggleType(type: ExpenseType) { setPage(1); setSelectedTypes((current) => current.includes(type) ? current.filter((item) => item !== type) : [...current, type]); }
   function apply(event: React.FormEvent) {
     event.preventDefault();
     if (from && to && from > to) { setError("開始日期不能晚於結束日期。"); return; }
-    setError(""); setLoading(true); setRange({ from, to });
+    setPage(1); setError(""); setLoading(true); setRange({ from, to });
   }
 
   return <div className="space-y-5">
@@ -73,7 +87,21 @@ export function AnalyticsDashboard() {
         <article className="card"><div className="mb-5 flex items-center gap-2"><TrendingUp className="text-moss-600" size={20} /><h2 className="font-bold">每月現金流與費用認列</h2></div><div className="h-72">{trendData.length ? <ResponsiveContainer width="100%" height="100%"><LineChart data={trendData} margin={{ left: 4, right: 8 }}><CartesianGrid strokeDasharray="3 3" stroke="#ced2b5" /><XAxis dataKey="date" tick={axisStyle} axisLine={{ stroke: "#b8be9c" }} tickLine={{ stroke: "#b8be9c" }} /><YAxis tick={axisStyle} axisLine={false} tickLine={false} width={56} /><Tooltip contentStyle={tooltipStyle} formatter={(value) => formatMoney(Number(value))} /><Legend /><Line type="monotone" name="現金流" dataKey="cashFlow" stroke="#ef8354" strokeWidth={3} /><Line type="monotone" name="費用認列" dataKey="recognized" stroke="#7ec151" strokeWidth={3} /><Line type="monotone" name="差異" dataKey="difference" stroke="#64748b" strokeWidth={2} strokeDasharray="5 4" /></LineChart></ResponsiveContainer> : <EmptyChart />}</div></article>
         <article className="card"><div className="mb-5 flex items-center gap-2"><BarChart3 className="text-coral" size={20} /><h2 className="font-bold">篩選分類分布</h2></div><div className="h-72">{summary.byCategory.length ? <ResponsiveContainer width="100%" height="100%"><BarChart data={summary.byCategory.slice(0, 8)} layout="vertical" margin={{ left: 8, right: 12 }}><CartesianGrid strokeDasharray="3 3" stroke="#ced2b5" /><XAxis type="number" tick={axisStyle} axisLine={{ stroke: "#b8be9c" }} tickLine={{ stroke: "#b8be9c" }} /><YAxis dataKey="name" type="category" tick={{ ...axisStyle, fontSize: 12 }} axisLine={false} tickLine={false} width={72} /><Tooltip contentStyle={tooltipStyle} formatter={(value) => formatMoney(Number(value))} /><Bar dataKey="value" fill="#fed24f" radius={[0, 8, 8, 0]} /></BarChart></ResponsiveContainer> : <EmptyChart />}</div></article>
       </section>
-      <section className="card"><h2 className="font-bold">篩選後花費最高的項目</h2><div className="mt-4 divide-y divide-stone-100">{summary.byItem.length ? summary.byItem.slice(0, 10).map((item, index) => <div key={item.name} className="flex items-center gap-4 py-3"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-moss-50 text-sm font-bold text-moss-700">{index + 1}</span><span className="min-w-0 flex-1 truncate font-medium">{item.name}</span><span className="font-bold">{formatMoney(item.value)}</span></div>) : <p className="py-8 text-center text-stone-400">此期間尚無資料</p>}</div></section>
+      <section className="card overflow-hidden p-0">
+        <div className="flex flex-col gap-3 border-b border-stone-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div><h2 className="font-bold">篩選後全部項目</h2><p className="mt-1 text-xs text-stone-400">共 {filtered.length} 筆，每頁最多 20 筆；點擊項目可查看原始帳目</p></div>
+          <div className="flex flex-wrap gap-2">
+            <select aria-label="項目排序方式" className="field w-auto" value={sortKey} onChange={(event) => { setSortKey(event.target.value as ExpenseSortKey); setPage(1); }}><option value="amount">依花費排序</option><option value="date">依日期排序</option></select>
+            <select aria-label="項目排序順序" className="field w-auto" value={sortDirection} onChange={(event) => { setSortDirection(event.target.value as SortDirection); setPage(1); }}><option value="desc">倒序</option><option value="asc">正序</option></select>
+          </div>
+        </div>
+        {visibleExpenses.length ? <div className="divide-y divide-stone-100">{visibleExpenses.map((expense) => <Link key={expense.id} href={`/app/expenses?expense=${encodeURIComponent(expense.id)}`} className="group flex items-center gap-3 px-5 py-4 transition hover:bg-stone-50">
+          <div className="min-w-0 flex-1"><p className="truncate font-medium group-hover:text-moss-700">{expense.item_name}</p><p className="mt-1 text-xs text-stone-400">{formatDateZh(expense.expense_date)} · {expense.categories?.name ?? "未命名分類"}</p></div>
+          <div className="shrink-0 text-right"><p className="font-bold">{formatMoney(expense.amount_twd)}</p>{expense.currency_code !== "TWD" && <p className="mt-1 text-xs text-stone-400">{formatMoney(expense.amount, expense.currency_code)}</p>}</div>
+          <ChevronRight className="shrink-0 text-stone-300 transition group-hover:translate-x-0.5 group-hover:text-moss-600" size={18} />
+        </Link>)}</div> : <p className="px-5 py-12 text-center text-stone-400">此期間尚無資料</p>}
+        {filtered.length > 0 && <nav aria-label="統計項目分頁" className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 px-5 py-4"><p className="text-sm text-stone-500" aria-live="polite">顯示第 {pageStart + 1}–{Math.min(pageStart + 20, filtered.length)} 筆，共 {filtered.length} 筆</p><div className="flex items-center gap-3"><button type="button" className="btn-secondary" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>上一頁</button><span className="text-sm text-stone-500">第 {currentPage} / {totalPages} 頁</span><button type="button" className="btn-secondary" disabled={currentPage === totalPages} onClick={() => setPage(currentPage + 1)}>下一頁</button></div></nav>}
+      </section>
     </>}
   </div>;
 }

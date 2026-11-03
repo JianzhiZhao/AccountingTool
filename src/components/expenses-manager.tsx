@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, Eye, Filter, LoaderCircle, Pencil, Search, Trash2, Upload, X } from "lucide-react";
 import { updatePrepaidPaymentDate, deleteExpense, listCategories, listCurrencies, listExpenseFamily, listExpenses, listTags } from "@/lib/data";
 import { generateAmortizationSchedule } from "@/lib/amortization";
@@ -15,10 +15,11 @@ import { StatusMessage } from "./status-message";
 const typeLabels: Record<ExpenseType, string> = { general: "一般", prepaid: "預付", amortized: "攤提" };
 const typeStyles: Record<ExpenseType, string> = { general: "bg-stone-100 text-stone-600", prepaid: "bg-amber-100 text-amber-800", amortized: "bg-moss-100 text-moss-800" };
 
-export function ExpensesManager() {
+export function ExpensesManager({ initialExpenseId }: { initialExpenseId?: string }) {
   const [pageSize, setPageSize] = useState(20);
   const [page, setPage] = useState(1);
   const listRef = useRef<HTMLDivElement>(null);
+  const openedInitialExpense = useRef<string | null>(null);
   const scrollAfterPageChange = useRef(false);
   function changePage(nextPage: number) {
     scrollAfterPageChange.current = true;
@@ -29,26 +30,34 @@ export function ExpensesManager() {
     scrollAfterPageChange.current = false;
     listRef.current?.scrollIntoView({ behavior: "instant", block: "start" });
   }, [page]);
-  const emptyFilters = (): ExpenseFilters => ({ ...EMPTY_FILTERS, expenseTypes: [...EMPTY_FILTERS.expenseTypes] });
+  const emptyFilters = (): ExpenseFilters => ({ ...EMPTY_FILTERS, expenseTypes: [...EMPTY_FILTERS.expenseTypes], includeFutureAmortized: Boolean(initialExpenseId) });
   const [filters, setFilters] = useState<ExpenseFilters>(emptyFilters); const [applied, setApplied] = useState<ExpenseFilters>(emptyFilters);
   const [expenses, setExpenses] = useState<Expense[]>([]); const [categories, setCategories] = useState<Category[]>([]); const [currencies, setCurrencies] = useState<EnabledCurrency[]>([]); const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true); const [editing, setEditing] = useState<Expense | null>(null); const [family, setFamily] = useState<{ rows: Expense[]; editable: boolean } | null>(null); const [message, setMessage] = useState(""); const [error, setError] = useState("");
   async function fetchData(next: ExpenseFilters) { return Promise.all([listExpenses(next), listCategories(true), listCurrencies(true), listTags(true)]); }
+  const openFamily = useCallback(async (expense: Expense) => { setError(""); try { setFamily({ rows: await listExpenseFamily(expense.id), editable: expense.expense_type === "prepaid" }); } catch { setError("無法載入預付與攤提明細。"); } }, []);
   async function load(next = applied) { setLoading(true); setError(""); try { const [expenseRows, categoryRows, currencyRows, tagRows] = await fetchData(next); setExpenses(expenseRows); setCategories(categoryRows); setCurrencies(currencyRows); setTags(tagRows); } catch { setError("無法載入帳目，請稍後再試。"); } finally { setLoading(false); } }
   useEffect(() => {
     let cancelled = false;
     fetchData(applied).then(([expenseRows, categoryRows, currencyRows, tagRows]) => {
       if (cancelled) return;
       setExpenses(expenseRows); setCategories(categoryRows); setCurrencies(currencyRows); setTags(tagRows); setError("");
+      if (initialExpenseId && openedInitialExpense.current !== initialExpenseId) {
+        const initialExpense = expenseRows.find((item) => item.id === initialExpenseId);
+        if (initialExpense) {
+          openedInitialExpense.current = initialExpenseId;
+          if (initialExpense.expense_type === "general") setEditing(initialExpense);
+          else void openFamily(initialExpense);
+        }
+      }
     }).catch(() => {
       if (!cancelled) setError("無法載入帳目，請稍後再試。");
     }).finally(() => {
       if (!cancelled) setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [applied]);
+  }, [applied, initialExpenseId, openFamily]);
   async function remove(expense: Expense) { const detail = expense.expense_type === "prepaid" ? `並一併刪除 ${expense.amortization_periods ?? 0} 筆攤提` : ""; if (!window.confirm(`確定永久刪除「${expense.item_name}」${detail}？此動作無法復原。`)) return; try { await deleteExpense(expense.id); setMessage(expense.expense_type === "prepaid" ? "預付及其攤提已永久刪除。" : "帳目已永久刪除。"); await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : "刪除失敗，請稍後再試。"); } }
-  async function openFamily(expense: Expense) { setError(""); try { setFamily({ rows: await listExpenseFamily(expense.id), editable: expense.expense_type === "prepaid" }); } catch { setError("無法載入預付與攤提明細。"); } }
   function apply(event: React.FormEvent) { event.preventDefault(); if (!filters.expenseTypes.length) { setError("請至少選擇一種帳目類型。"); return; } setPage(1); setError(""); setLoading(true); setApplied({ ...filters, expenseTypes: [...filters.expenseTypes] }); }
   function clear() { const empty = emptyFilters(); setPage(1); setFilters(empty); setError(""); setLoading(true); setApplied(empty); }
   function toggleType(type: ExpenseType) { setFilters((current) => ({ ...current, expenseTypes: current.expenseTypes.includes(type) ? current.expenseTypes.filter((item) => item !== type) : [...current.expenseTypes, type] })); }

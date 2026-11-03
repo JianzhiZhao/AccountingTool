@@ -159,6 +159,13 @@ describe("ExpensesManager", () => {
     expect(screen.getAllByRole("article")).toHaveLength(50);
   });
 
+  it("opens the original expense requested by a statistics link", async () => {
+    render(<ExpensesManager initialExpenseId="expense-twd" />);
+
+    expect(await screen.findByRole("dialog", { name: "帳目明細" })).toBeTruthy();
+    expect(listExpenses).toHaveBeenCalledWith(expect.objectContaining({ includeFutureAmortized: true }));
+  });
+
   it("shows TWD on the right and only labels converted foreign-currency expenses", async () => {
     render(<ExpensesManager />);
 
@@ -251,3 +258,4 @@ describe("ExpensesManager", () => {
   });
 
 });
+
