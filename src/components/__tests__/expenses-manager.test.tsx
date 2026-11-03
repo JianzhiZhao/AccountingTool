@@ -181,6 +181,13 @@ describe("ExpensesManager", () => {
     expect(within(jpyArticle).getByText("#旅遊")).toBeTruthy();
   });
 
+  it("shows the TWD subtotal for all filtered expenses", async () => {
+    render(<ExpensesManager />);
+    await screen.findByText("午餐");
+
+    expect(screen.getByText(formatMoney(1620, "TWD"))).toBeTruthy();
+  });
+
   it("applies the selected optional tag filter", async () => {
     render(<ExpensesManager />);
     await screen.findByText("日本車票");
