@@ -5,7 +5,7 @@ import Link from "next/link";
 import { AlertTriangle, BarChart3, CalendarRange, ChevronRight, LoaderCircle, TrendingUp, Wallet } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { listExpenses } from "@/lib/data";
-import { currentMonthToToday, formatDateZh, todayInTaipei } from "@/lib/date";
+import { currentMonthToToday, formatDateZh, monthToDateRange, todayInTaipei } from "@/lib/date";
 import { formatMoney, monthlyAccountingTrend, summarizeAccounting, summarizeExpenses } from "@/lib/analytics";
 import type { Expense, ExpenseType } from "@/types/domain";
 import { StatusMessage } from "./status-message";
@@ -15,12 +15,6 @@ const tooltipStyle = { backgroundColor: "#f4f3e6", border: "1px solid #ced2b5", 
 const typeOptions: { value: ExpenseType; label: string }[] = [{ value: "general", label: "一般" }, { value: "prepaid", label: "預付" }, { value: "amortized", label: "攤提" }];
 type ExpenseSortKey = "amount" | "date";
 type SortDirection = "asc" | "desc";
-
-function monthToDateRange(month: string) {
-  const [year, monthNumber] = month.split("-").map(Number);
-  const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
-  return { from: `${month}-01`, to: `${month}-${String(lastDay).padStart(2, "0")}` };
-}
 
 export function AnalyticsDashboard() {
   const initial = currentMonthToToday();

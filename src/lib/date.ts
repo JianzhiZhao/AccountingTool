@@ -7,6 +7,12 @@ export function todayInTaipei(now = new Date()) {
   }).format(now);
 }
 
+export function monthToDateRange(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  return { from: `${month}-01`, to: `${month}-${String(lastDay).padStart(2, "0")}` };
+}
+
 export function currentMonthRange(now = new Date()) {
   const today = todayInTaipei(now);
   const [year, month] = today.split("-");

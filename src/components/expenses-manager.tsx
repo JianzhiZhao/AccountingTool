@@ -5,7 +5,7 @@ import { Download, Eye, Filter, LoaderCircle, Pencil, Search, Trash2, Upload, X 
 import { updatePrepaidPaymentDate, deleteExpense, listCategories, listCurrencies, listExpenseFamily, listExpenses, listTags } from "@/lib/data";
 import { generateAmortizationSchedule } from "@/lib/amortization";
 import { EMPTY_FILTERS } from "@/lib/constants";
-import { formatDateZh, todayInTaipei } from "@/lib/date";
+import { formatDateZh, monthToDateRange, todayInTaipei } from "@/lib/date";
 import { formatMoney } from "@/lib/analytics";
 import type { Category, EnabledCurrency, Expense, ExpenseFilters, ExpenseType, Tag } from "@/types/domain";
 import { ExpenseForm } from "./expense-form";
@@ -62,6 +62,7 @@ export function ExpensesManager({ initialExpenseId }: { initialExpenseId?: strin
   function clear() { const empty = emptyFilters(); setPage(1); setFilters(empty); setError(""); setLoading(true); setApplied(empty); }
   function toggleType(type: ExpenseType) { setFilters((current) => ({ ...current, expenseTypes: current.expenseTypes.includes(type) ? current.expenseTypes.filter((item) => item !== type) : [...current.expenseTypes, type] })); }
 
+  const selectedMonth = filters.from && filters.to && filters.from === `${filters.from.slice(0, 7)}-01` && filters.to === monthToDateRange(filters.from.slice(0, 7)).to ? filters.from.slice(0, 7) : "";
   const subtotalTwd = expenses.reduce((total, expense) => total + expense.amount_twd, 0);
   const totalPages = Math.max(1, Math.ceil(expenses.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -69,15 +70,16 @@ export function ExpensesManager({ initialExpenseId }: { initialExpenseId?: strin
   const visibleExpenses = expenses.slice(pageStart, pageStart + pageSize);
 
   return <div className="space-y-5">
-    <form onSubmit={apply} className="card grid gap-3 md:grid-cols-7">
+    <form onSubmit={apply} className="card grid gap-3 md:grid-cols-8">
       <div className="relative md:col-span-2"><Search className="absolute left-4 top-3.5 text-stone-400" size={19} /><input aria-label="搜尋名稱或備註" className="field pl-11" placeholder="搜尋名稱或備註" value={filters.query} onChange={(event) => setFilters({ ...filters, query: event.target.value })} /></div>
+      <input aria-label="選擇月份" className="field" type="month" value={selectedMonth} onChange={(event) => { if (!event.target.value) return; const next = monthToDateRange(event.target.value); setFilters({ ...filters, from: next.from, to: next.to }); }} />
       <input aria-label="開始日期" className="field" type="date" value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} />
       <input aria-label="結束日期" className="field" type="date" value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} />
       <select aria-label="分類" className="field" value={filters.categoryId} onChange={(event) => setFilters({ ...filters, categoryId: event.target.value })}><option value="">所有分類</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}{!category.is_active ? "（停用）" : ""}</option>)}</select>
       <select aria-label="幣別" className="field" value={filters.currencyCode} onChange={(event) => setFilters({ ...filters, currencyCode: event.target.value })}><option value="">所有幣別</option>{currencies.map((currency) => <option key={currency.code} value={currency.code}>{currency.code}{!currency.is_active ? "（停用）" : ""}</option>)}</select>
       <select aria-label="Tag" className="field" value={filters.tagId} onChange={(event) => setFilters({ ...filters, tagId: event.target.value })}><option value="">所有 Tag</option>{tags.map((tag) => <option key={tag.id} value={tag.id}>#{tag.name}</option>)}</select>
-      <div className="md:col-span-7"><p className="label">帳目類型</p><div className="flex flex-wrap gap-2">{(["general", "prepaid", "amortized"] as ExpenseType[]).map((type) => <button key={type} type="button" aria-pressed={filters.expenseTypes.includes(type)} onClick={() => toggleType(type)} className={`rounded-full border px-3 py-1.5 text-sm ${filters.expenseTypes.includes(type) ? "border-moss-500 bg-moss-100 text-moss-800" : "border-stone-200 text-stone-500"}`}>{typeLabels[type]}</button>)}<label className="ml-1 flex items-center gap-2 text-sm text-stone-600"><input type="checkbox" checked={filters.includeFutureAmortized} onChange={(event) => setFilters({ ...filters, includeFutureAmortized: event.target.checked })} />顯示未到期攤提</label></div></div>
-      <div className="flex flex-wrap gap-2 md:col-span-7"><button className="btn-primary" type="submit"><Filter size={17} />套用篩選</button><button className="btn-secondary" type="button" onClick={clear}><X size={17} />清除</button><CsvTools expenses={expenses} onImported={() => load()} exportButton={<><Download size={17} />匯出</>} importButton={<><Upload size={17} />匯入</>} /></div>
+      <div className="md:col-span-8"><p className="label">帳目類型</p><div className="flex flex-wrap gap-2">{(["general", "prepaid", "amortized"] as ExpenseType[]).map((type) => <button key={type} type="button" aria-pressed={filters.expenseTypes.includes(type)} onClick={() => toggleType(type)} className={`rounded-full border px-3 py-1.5 text-sm ${filters.expenseTypes.includes(type) ? "border-moss-500 bg-moss-100 text-moss-800" : "border-stone-200 text-stone-500"}`}>{typeLabels[type]}</button>)}<label className="ml-1 flex items-center gap-2 text-sm text-stone-600"><input type="checkbox" checked={filters.includeFutureAmortized} onChange={(event) => setFilters({ ...filters, includeFutureAmortized: event.target.checked })} />顯示未到期攤提</label></div></div>
+      <div className="flex flex-wrap gap-2 md:col-span-8"><button className="btn-primary" type="submit"><Filter size={17} />套用篩選</button><button className="btn-secondary" type="button" onClick={clear}><X size={17} />清除</button><CsvTools expenses={expenses} onImported={() => load()} exportButton={<><Download size={17} />匯出</>} importButton={<><Upload size={17} />匯入</>} /></div>
     </form>
     <StatusMessage message={error || message} error={Boolean(error)} />
     <section className="card overflow-hidden p-0">

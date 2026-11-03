@@ -166,6 +166,16 @@ describe("ExpensesManager", () => {
     expect(listExpenses).toHaveBeenCalledWith(expect.objectContaining({ includeFutureAmortized: true }));
   });
 
+  it("fills the date filters for the selected year and month", async () => {
+    render(<ExpensesManager />);
+    await screen.findByText("午餐");
+
+    fireEvent.change(screen.getByLabelText("選擇月份"), { target: { value: "2024-02" } });
+
+    expect((screen.getByLabelText("開始日期") as HTMLInputElement).value).toBe("2024-02-01");
+    expect((screen.getByLabelText("結束日期") as HTMLInputElement).value).toBe("2024-02-29");
+  });
+
   it("shows TWD on the right and only labels converted foreign-currency expenses", async () => {
     render(<ExpensesManager />);
 
